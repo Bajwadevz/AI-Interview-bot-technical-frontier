@@ -1,0 +1,8 @@
+{
+  "name": "AI Interview Bot - Intelligent Interview Orchestrator",
+  "description": "An AI-powered technical interview simulator with domain-specific adaptive questioning and real-time feedback.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
