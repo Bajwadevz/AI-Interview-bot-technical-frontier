@@ -2,54 +2,34 @@
 /**
  * PROJECT: AI Interview Bot
  * FILE: backend/services/authService.ts
- * SERVICE: Strict Authorization Gatekeeper
+ * SERVICE: Supabase Authentication Service (replaces localStorage auth)
  */
 
-import { User, UserRole } from "../../types";
+import { SupabaseAuth } from "./supabaseAuth";
 import { DB } from "./db";
 
-interface SecureUser extends User {
-  passwordHash: string;
-}
-
+// Re-export Supabase Auth with same interface for backward compatibility
 export const AuthService = {
-  register: async (email: string, name: string, pass: string): Promise<{ success: boolean; user?: User; error?: string }> => {
-    const users = DB.getUsers() as SecureUser[];
-    if (users.find(u => u.email === email)) return { success: false, error: "Identity already registered in the node." };
-    
-    const newUser: SecureUser = {
-      id: `usr_${Date.now()}`,
-      email,
-      name,
-      role: UserRole.CANDIDATE,
-      isVerified: true,
-      history: [],
-      passwordHash: btoa(pass) // Mock hashing for the project scope
-    };
-    
-    DB.saveUser(newUser);
-    return { success: true, user: newUser };
+  register: async (email: string, name: string, password: string): Promise<{ success: boolean; user?: any; error?: string }> => {
+    const result = await SupabaseAuth.register(email, password, name);
+    if (result.success && result.user) {
+      // Save to local session for quick access
+      await DB.setAuthSession(result.user);
+    }
+    return result;
   },
 
-  login: async (email: string, pass: string): Promise<{ success: boolean; user?: User; error?: string }> => {
-    const users = DB.getUsers() as SecureUser[];
-    const user = users.find(u => u.email === email);
-    
-    if (!user) {
-      return { success: false, error: "Identity not recognized." };
+  login: async (email: string, password: string): Promise<{ success: boolean; user?: any; error?: string }> => {
+    const result = await SupabaseAuth.login(email, password);
+    if (result.success && result.user) {
+      // Save to local session for quick access
+      await DB.setAuthSession(result.user);
     }
-
-    // CRITICAL QA FIX: Strict Password Validation
-    if (user.passwordHash !== btoa(pass)) {
-      return { success: false, error: "Authorization Key Mismatch. Access Denied." };
-    }
-    
-    const { passwordHash, ...safeUser } = user;
-    DB.setAuthSession(safeUser as User);
-    return { success: true, user: safeUser as User };
+    return result;
   },
 
-  logout: () => {
-    DB.setAuthSession(null);
+  logout: async (): Promise<void> => {
+    await SupabaseAuth.logout();
+    await DB.setAuthSession(null);
   }
 };

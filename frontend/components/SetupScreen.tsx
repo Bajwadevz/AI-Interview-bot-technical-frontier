@@ -4,15 +4,29 @@ import { Domain, Difficulty } from '../../types';
 
 interface SetupScreenProps {
   onStart: (domain: Domain, difficulty: Difficulty, qCount: number) => void;
+  onBack?: () => void;
 }
 
-const SetupScreen: React.FC<SetupScreenProps> = ({ onStart }) => {
+const SetupScreen: React.FC<SetupScreenProps> = ({ onStart, onBack }) => {
   const [domain, setDomain] = useState<Domain | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty>(Difficulty.INTERMEDIATE);
   const [qCount, setQCount] = useState(5);
 
   return (
     <div className="w-full max-w-5xl animate-in fade-in slide-in-from-bottom-10 duration-700">
+      {/* Back Button */}
+      {onBack && (
+        <button
+          onClick={onBack}
+          className="mb-8 flex items-center gap-2 px-6 py-3 bg-white hover:bg-slate-50 border border-slate-200 rounded-2xl text-slate-700 text-[10px] font-black uppercase tracking-widest transition-all shadow-sm"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back
+        </button>
+      )}
+      
       <div className="text-center mb-16">
         <h2 className="text-4xl lg:text-5xl font-black text-slate-900 tracking-tighter mb-4">Start Your Session</h2>
         <p className="text-slate-500 font-bold uppercase tracking-[0.3em] text-[10px]">Customize your practice environment</p>

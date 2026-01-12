@@ -18,11 +18,19 @@ const Module6Dashboard: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
   useEffect(() => {
     // Get all sessions and sort by newest first
-    const all = DB.getSessions().sort((a, b) => b.startedAt - a.startedAt);
-    setSessions(all);
-    if (all.length > 0) {
-      setSelectedSession(all[0]);
-    }
+    const loadSessions = async () => {
+      try {
+        const all = await DB.getSessions();
+        const sorted = all.sort((a, b) => b.startedAt - a.startedAt);
+        setSessions(sorted);
+        if (sorted.length > 0) {
+          setSelectedSession(sorted[0]);
+        }
+      } catch (error) {
+        console.error('Error loading sessions:', error);
+      }
+    };
+    loadSessions();
   }, []);
 
   return (

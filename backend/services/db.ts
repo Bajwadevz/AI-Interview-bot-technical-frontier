@@ -1,6 +1,15 @@
 
-import { InterviewSession, TranscriptEntry, Question, User } from "../../types";
+/**
+ * PROJECT: AI Interview Bot
+ * FILE: backend/services/db.ts
+ * PURPOSE: Database service - now uses Supabase (maintains backward compatibility)
+ */
 
+import { InterviewSession, TranscriptEntry, Question, User } from "../../types";
+import { SupabaseDB } from "./supabaseDb";
+import { SupabaseAuth } from "./supabaseAuth";
+
+// Legacy localStorage keys (for migration/fallback)
 const KEYS = {
   SESSIONS: "aib_v4_sessions",
   TRANSCRIPTS: "aib_v4_transcripts",
@@ -10,55 +19,166 @@ const KEYS = {
 };
 
 export const DB = {
-  saveUser: (user: User) => {
-    const users = DB.getUsers();
-    const idx = users.findIndex(u => u.id === user.id || u.email === user.email);
-    if (idx > -1) users[idx] = user;
-    else users.push(user);
-    localStorage.setItem(KEYS.USERS, JSON.stringify(users));
+  /**
+   * Save user to Supabase
+   */
+  async saveUser(user: User): Promise<void> {
+    try {
+      await SupabaseDB.saveUser(user);
+    } catch (error) {
+      console.error('Error saving user to Supabase, falling back to localStorage:', error);
+      // Fallback to localStorage for offline/error cases
+      const users = DB.getUsers();
+      const idx = users.findIndex(u => u.id === user.id || u.email === user.email);
+      if (idx > -1) users[idx] = user;
+      else users.push(user);
+      localStorage.setItem(KEYS.USERS, JSON.stringify(users));
+    }
   },
   
-  getUsers: (): User[] => JSON.parse(localStorage.getItem(KEYS.USERS) || "[]"),
-  
-  setAuthSession: (user: User | null) => {
-    if (user) localStorage.setItem(KEYS.ACTIVE_USER, JSON.stringify(user));
-    else localStorage.removeItem(KEYS.ACTIVE_USER);
+  /**
+   * Get users (legacy - returns empty array, use getCurrentUser instead)
+   */
+  getUsers(): User[] {
+    return JSON.parse(localStorage.getItem(KEYS.USERS) || "[]");
   },
   
-  getAuthSession: (): User | null => {
+  /**
+   * Set auth session (now uses Supabase Auth)
+   */
+  setAuthSession: async (user: User | null): Promise<void> => {
+    if (user) {
+      // Store in localStorage for quick access
+      localStorage.setItem(KEYS.ACTIVE_USER, JSON.stringify(user));
+    } else {
+      await SupabaseAuth.logout();
+      localStorage.removeItem(KEYS.ACTIVE_USER);
+    }
+  },
+  
+  /**
+   * Get auth session (now uses Supabase Auth)
+   */
+  getAuthSession: async (): Promise<User | null> => {
+    try {
+      // Try Supabase first
+      const user = await SupabaseAuth.getCurrentUser();
+      if (user) {
+        localStorage.setItem(KEYS.ACTIVE_USER, JSON.stringify(user));
+        return user;
+      }
+    } catch (error) {
+      console.error('Error getting auth session from Supabase:', error);
+    }
+    
+    // Fallback to localStorage
     const data = localStorage.getItem(KEYS.ACTIVE_USER);
     return data ? JSON.parse(data) : null;
   },
 
-  saveSession: (session: InterviewSession) => {
-    const sessions = DB.getSessions();
-    const index = sessions.findIndex(s => s.sessionId === session.sessionId);
-    if (index > -1) sessions[index] = session;
-    else sessions.push(session);
-    localStorage.setItem(KEYS.SESSIONS, JSON.stringify(sessions));
+  /**
+   * Save session to Supabase
+   */
+  async saveSession(session: InterviewSession): Promise<void> {
+    try {
+      await SupabaseDB.saveSession(session);
+    } catch (error) {
+      console.error('Error saving session to Supabase, falling back to localStorage:', error);
+      // Fallback to localStorage
+      const sessions = JSON.parse(localStorage.getItem(KEYS.SESSIONS) || "[]");
+      const index = sessions.findIndex((s: InterviewSession) => s.sessionId === session.sessionId);
+      if (index > -1) sessions[index] = session;
+      else sessions.push(session);
+      localStorage.setItem(KEYS.SESSIONS, JSON.stringify(sessions));
+    }
   },
   
-  getSessions: (): InterviewSession[] => JSON.parse(localStorage.getItem(KEYS.SESSIONS) || "[]"),
+  /**
+   * Get sessions from Supabase
+   */
+  async getSessions(): Promise<InterviewSession[]> {
+    try {
+      const { data: { user } } = await import('./supabase').then(m => m.supabase.auth.getUser());
+      if (user) {
+        return await SupabaseDB.getSessions(user.id);
+      }
+    } catch (error) {
+      console.error('Error getting sessions from Supabase, falling back to localStorage:', error);
+    }
+    
+    // Fallback to localStorage
+    return JSON.parse(localStorage.getItem(KEYS.SESSIONS) || "[]");
+  },
 
-  saveTranscript: (entry: TranscriptEntry) => {
-    const all = JSON.parse(localStorage.getItem(KEYS.TRANSCRIPTS) || "[]");
-    all.push(entry);
-    localStorage.setItem(KEYS.TRANSCRIPTS, JSON.stringify(all));
+  /**
+   * Save transcript to Supabase
+   */
+  async saveTranscript(entry: TranscriptEntry): Promise<void> {
+    try {
+      await SupabaseDB.saveTranscript(entry);
+    } catch (error) {
+      console.error('Error saving transcript to Supabase, falling back to localStorage:', error);
+      // Fallback to localStorage
+      const all = JSON.parse(localStorage.getItem(KEYS.TRANSCRIPTS) || "[]");
+      all.push(entry);
+      localStorage.setItem(KEYS.TRANSCRIPTS, JSON.stringify(all));
+    }
   },
   
-  getTranscripts: (sessionId: string): TranscriptEntry[] => {
-    const all = JSON.parse(localStorage.getItem(KEYS.TRANSCRIPTS) || "[]");
-    return all.filter((t: TranscriptEntry) => t.sessionId === sessionId);
+  /**
+   * Get transcripts from Supabase
+   */
+  async getTranscripts(sessionId: string): Promise<TranscriptEntry[]> {
+    try {
+      return await SupabaseDB.getTranscripts(sessionId);
+    } catch (error) {
+      console.error('Error getting transcripts from Supabase, falling back to localStorage:', error);
+      // Fallback to localStorage
+      const all = JSON.parse(localStorage.getItem(KEYS.TRANSCRIPTS) || "[]");
+      return all.filter((t: TranscriptEntry) => t.sessionId === sessionId);
+    }
   },
 
-  saveCustomQuestions: (questions: Question[]) => {
-    const existing = DB.getCustomQuestions();
-    localStorage.setItem(KEYS.CUSTOM_QUESTIONS, JSON.stringify([...existing, ...questions]));
+  /**
+   * Save custom questions to Supabase
+   */
+  async saveCustomQuestions(questions: Question[]): Promise<void> {
+    try {
+      await SupabaseDB.saveCustomQuestions(questions);
+    } catch (error) {
+      console.error('Error saving custom questions to Supabase, falling back to localStorage:', error);
+      // Fallback to localStorage
+      const existing = JSON.parse(localStorage.getItem(KEYS.CUSTOM_QUESTIONS) || "[]");
+      localStorage.setItem(KEYS.CUSTOM_QUESTIONS, JSON.stringify([...existing, ...questions]));
+    }
   },
   
-  getCustomQuestions: (): Question[] => JSON.parse(localStorage.getItem(KEYS.CUSTOM_QUESTIONS) || "[]"),
+  /**
+   * Get custom questions from Supabase
+   */
+  async getCustomQuestions(): Promise<Question[]> {
+    try {
+      return await SupabaseDB.getCustomQuestions();
+    } catch (error) {
+      console.error('Error getting custom questions from Supabase, falling back to localStorage:', error);
+      // Fallback to localStorage
+      return JSON.parse(localStorage.getItem(KEYS.CUSTOM_QUESTIONS) || "[]");
+    }
+  },
 
-  clearAll: () => {
+  /**
+   * Clear all user data (Supabase)
+   */
+  async clearAll(): Promise<void> {
+    try {
+      const { data: { user } } = await import('./supabase').then(m => m.supabase.auth.getUser());
+      if (user) {
+        await SupabaseDB.clearAll(user.id);
+      }
+    } catch (error) {
+      console.error('Error clearing data from Supabase:', error);
+    }
+    // Also clear localStorage
     localStorage.clear();
   }
 };

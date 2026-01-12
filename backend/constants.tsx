@@ -14,12 +14,17 @@ import { Question } from '../types';
  * PURPOSE: Harmonizes hardcoded seed questions with the GenAI-expanded 
  *          repository stored in the DB.
  */
-export const getActiveBank = (): Question[] => {
-  const custom = DB.getCustomQuestions();
-  // Filter to ensure no duplicates in the final ledger
-  const seenIds = new Set(COMPREHENSIVE_BANK.map(q => q.id));
-  const uniqueCustom = custom.filter(q => !seenIds.has(q.id));
-  return [...COMPREHENSIVE_BANK, ...uniqueCustom];
+export const getActiveBank = async (): Promise<Question[]> => {
+  try {
+    const custom = await DB.getCustomQuestions();
+    // Filter to ensure no duplicates in the final ledger
+    const seenIds = new Set(COMPREHENSIVE_BANK.map(q => q.id));
+    const uniqueCustom = custom.filter(q => !seenIds.has(q.id));
+    return [...COMPREHENSIVE_BANK, ...uniqueCustom];
+  } catch (error) {
+    console.error('Error loading custom questions, using seed bank only:', error);
+    return COMPREHENSIVE_BANK;
+  }
 };
 
 /**

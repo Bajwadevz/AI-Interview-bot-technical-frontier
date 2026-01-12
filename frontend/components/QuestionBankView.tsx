@@ -11,7 +11,11 @@ import { COMPREHENSIVE_BANK } from '../../backend/questionBank';
 import { DB } from '../../backend/services/db';
 import { generateBulkQuestions } from '../../backend/services/geminiService';
 
-const QuestionBankView: React.FC = () => {
+interface QuestionBankViewProps {
+  onBack?: () => void;
+}
+
+const QuestionBankView: React.FC<QuestionBankViewProps> = ({ onBack }) => {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [filter, setFilter] = useState<string>("All");
   const [search, setSearch] = useState("");
@@ -19,8 +23,16 @@ const QuestionBankView: React.FC = () => {
 
   useEffect(() => {
     // Load merged bank
-    const custom = DB.getCustomQuestions();
-    setQuestions([...COMPREHENSIVE_BANK, ...custom]);
+    const loadQuestions = async () => {
+      try {
+        const custom = await DB.getCustomQuestions();
+        setQuestions([...COMPREHENSIVE_BANK, ...custom]);
+      } catch (error) {
+        console.error('Error loading custom questions:', error);
+        setQuestions([...COMPREHENSIVE_BANK]);
+      }
+    };
+    loadQuestions();
   }, []);
 
   const filtered = questions.filter(q => {
@@ -35,9 +47,9 @@ const QuestionBankView: React.FC = () => {
     try {
       // PDF Requirement: Scaling to thousands via GenAI expansion
       const newBatch = await generateBulkQuestions(targetDomain, 30);
-      DB.saveCustomQuestions(newBatch);
+      await DB.saveCustomQuestions(newBatch);
       
-      const updatedCustom = DB.getCustomQuestions();
+      const updatedCustom = await DB.getCustomQuestions();
       setQuestions([...COMPREHENSIVE_BANK, ...updatedCustom]);
     } catch (e) {
       alert("AI expansion failed. Please verify your API key and connection.");
@@ -50,6 +62,19 @@ const QuestionBankView: React.FC = () => {
 
   return (
     <div className="w-full max-w-6xl animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
+      {/* Back Button */}
+      {onBack && (
+        <button
+          onClick={onBack}
+          className="mb-6 flex items-center gap-2 px-6 py-3 bg-white hover:bg-slate-50 border border-slate-200 rounded-2xl text-slate-700 text-[10px] font-black uppercase tracking-widest transition-all shadow-sm"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back
+        </button>
+      )}
+      
       <div className="bg-white rounded-[2.5rem] shadow-2xl border border-slate-100 overflow-hidden">
         <div className="bg-slate-900 p-12 flex flex-col md:flex-row justify-between items-center gap-8">
           <div className="text-center md:text-left">

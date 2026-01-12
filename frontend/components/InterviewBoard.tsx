@@ -60,13 +60,42 @@ const InterviewBoard: React.FC<InterviewBoardProps> = ({ session, onFinish, setS
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const bank = getActiveBank();
-    const q = bank.find(q => q.id === session.currentQuestionId);
-    if (q) {
-      setCurrentQuestion(q);
-      addTranscriptEntry("bot", q.text);
-      handleTTS(q.text);
-    }
+    // Load existing transcripts from DB to avoid duplicates
+    const loadTranscripts = async () => {
+      try {
+        const existingTranscripts = await DB.getTranscripts(session.sessionId);
+        if (existingTranscripts.length > 0) {
+          setTranscript(existingTranscripts);
+        }
+      } catch (error) {
+        console.error('Error loading transcripts:', error);
+      }
+    };
+    loadTranscripts();
+    
+    // Only add first question if no transcripts exist (new session)
+    const loadQuestion = async () => {
+      try {
+        const existingTranscripts = await DB.getTranscripts(session.sessionId);
+        if (existingTranscripts.length > 0) {
+          setTranscript(existingTranscripts);
+        }
+        
+        const bank = await getActiveBank();
+        const q = bank.find(q => q.id === session.currentQuestionId);
+        if (q && existingTranscripts.length === 0) {
+          setCurrentQuestion(q);
+          await addTranscriptEntry("bot", q.text);
+          handleTTS(q.text);
+        } else if (q) {
+          // Session already has transcripts, just set the current question
+          setCurrentQuestion(q);
+        }
+      } catch (error) {
+        console.error('Error loading question:', error);
+      }
+    };
+    loadQuestion();
 
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRecognition) {
@@ -110,7 +139,7 @@ const InterviewBoard: React.FC<InterviewBoardProps> = ({ session, onFinish, setS
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [transcript]);
 
-  const addTranscriptEntry = (speaker: "user" | "bot", text: string) => {
+  const addTranscriptEntry = async (speaker: "user" | "bot", text: string) => {
     const entry: TranscriptEntry = {
       sessionId: session.sessionId,
       ts: Date.now(),
@@ -119,7 +148,11 @@ const InterviewBoard: React.FC<InterviewBoardProps> = ({ session, onFinish, setS
       confidence: 1
     };
     setTranscript(prev => [...prev, entry]);
-    DB.saveTranscript(entry);
+    try {
+      await DB.saveTranscript(entry);
+    } catch (error) {
+      console.error('Error saving transcript:', error);
+    }
   };
 
   const handleTTS = async (text: string) => {
@@ -149,7 +182,7 @@ const InterviewBoard: React.FC<InterviewBoardProps> = ({ session, onFinish, setS
     setIsProcessing(true);
     const capturedInput = userInput;
     setUserInput("");
-    addTranscriptEntry("user", capturedInput);
+    await addTranscriptEntry("user", capturedInput);
 
     try {
       const response = await processTurn(session, currentQuestion, capturedInput, transcript);
@@ -171,29 +204,59 @@ const InterviewBoard: React.FC<InterviewBoardProps> = ({ session, onFinish, setS
       // PRD Session End Logic
       if (updated.state.topicProgress.length >= session.questionCount && !response.nextQuestion) {
         const farewell = "Assessment complete. Generating your verified performance dossier...";
-        addTranscriptEntry("bot", farewell);
+        await addTranscriptEntry("bot", farewell);
         handleTTS(farewell);
         setSession(updated);
-        DB.saveSession(updated);
+        await DB.saveSession(updated);
         setTimeout(onFinish, 3000);
         return;
       }
 
       if (response.nextQuestion) {
+        // Verify next question is from the correct domain
+        if (response.nextQuestion.domain !== session.domain) {
+          console.warn("Question domain mismatch detected, filtering by domain");
+          const bank = await getActiveBank();
+          const domainQuestions = bank.filter(q => 
+            q.domain === session.domain && 
+            !updated.state.topicProgress.includes(q.id)
+          );
+          if (domainQuestions.length > 0) {
+            response.nextQuestion = domainQuestions[0];
+          }
+        }
+        
+        // Add bot reply first (evaluation/feedback)
+        if (response.botReply && response.botReply.trim()) {
+          await addTranscriptEntry("bot", response.botReply);
+          handleTTS(response.botReply);
+        }
+        
+        // Then add the next question separately after a brief pause
         setCurrentQuestion(response.nextQuestion);
         if (!updated.state.topicProgress.includes(response.nextQuestion.id)) {
             updated.state.topicProgress.push(response.nextQuestion.id);
         }
         updated.currentQuestionId = response.nextQuestion.id;
-        addTranscriptEntry("bot", response.botReply);
-        handleTTS(response.botReply);
+        
+        // Add question to transcript with a small delay for natural flow
+        const questionTimeout = setTimeout(async () => {
+          await addTranscriptEntry("bot", response.nextQuestion!.text);
+          handleTTS(response.nextQuestion!.text);
+        }, 1500);
+        
+        // Store timeout ref for cleanup if needed
+        (window as any).__questionTimeout = questionTimeout;
       } else {
-        addTranscriptEntry("bot", response.botReply);
-        handleTTS(response.botReply);
+        // No next question - just add bot reply
+        if (response.botReply && response.botReply.trim()) {
+          await addTranscriptEntry("bot", response.botReply);
+          handleTTS(response.botReply);
+        }
       }
 
       setSession(updated);
-      DB.saveSession(updated);
+      await DB.saveSession(updated);
       turnStartTimeRef.current = Date.now();
     } catch (error) {
       console.error("Analysis Failure", error);

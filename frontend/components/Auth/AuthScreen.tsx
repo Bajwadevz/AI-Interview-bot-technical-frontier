@@ -5,9 +5,10 @@ import { User } from '../../../types';
 
 interface AuthScreenProps {
   onAuthSuccess: (user: User) => void;
+  onBack?: () => void;
 }
 
-const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
+const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
@@ -15,9 +16,52 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Email validation function
+  const validateEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  // Password validation function
+  const validatePassword = (password: string): boolean => {
+    return password.length >= 6; // Minimum 6 characters
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    
+    // Client-side validation
+    if (!email.trim()) {
+      setError("Email is required.");
+      return;
+    }
+    
+    if (!validateEmail(email)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+    
+    if (!password.trim()) {
+      setError("Password is required.");
+      return;
+    }
+    
+    if (!validatePassword(password)) {
+      setError("Password must be at least 6 characters long.");
+      return;
+    }
+    
+    if (!isLogin && !name.trim()) {
+      setError("Name is required for registration.");
+      return;
+    }
+    
+    if (!isLogin && name.trim().length < 2) {
+      setError("Name must be at least 2 characters long.");
+      return;
+    }
+    
     setLoading(true);
 
     try {
@@ -39,6 +83,19 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
 
   return (
     <div className="h-screen w-full bg-[#0f172a] flex items-center justify-center p-6 relative overflow-hidden">
+      {/* Back Button */}
+      {onBack && (
+        <button
+          onClick={onBack}
+          className="absolute top-8 left-8 z-50 flex items-center gap-2 px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/20 rounded-2xl text-white text-[10px] font-black uppercase tracking-widest transition-all backdrop-blur-sm"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back
+        </button>
+      )}
+      
       {/* Background Decor */}
       <div className="absolute top-1/4 left-1/4 w-[600px] h-[600px] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-emerald-500/10 rounded-full blur-[100px] pointer-events-none" />

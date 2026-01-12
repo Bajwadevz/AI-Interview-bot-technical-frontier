@@ -4,9 +4,10 @@ import React from 'react';
 interface LandingPageProps {
   onGetStarted: () => void;
   onSignIn: () => void;
+  onExploreCurriculum?: () => void;
 }
 
-const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onSignIn }) => {
+const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onSignIn, onExploreCurriculum }) => {
   return (
     <div className="min-h-screen bg-[#020617] text-white selection:bg-indigo-500/30 overflow-x-hidden">
       {/* Dynamic Background */}
@@ -70,7 +71,10 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onSignIn }) => 
               Initiate Assessment
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
             </button>
-            <button className="px-10 py-5 bg-white/5 border border-white/10 text-white rounded-2xl font-black text-xs uppercase tracking-[0.3em] hover:bg-white/10 transition-all active:scale-95">
+            <button 
+              onClick={onExploreCurriculum || onGetStarted}
+              className="px-10 py-5 bg-white/5 border border-white/10 text-white rounded-2xl font-black text-xs uppercase tracking-[0.3em] hover:bg-white/10 transition-all active:scale-95"
+            >
               Explore Curriculum
             </button>
           </div>
@@ -114,9 +118,24 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onSignIn }) => 
             &copy; 2024 AI INTERVIEW BOT • ENGINEERED FOR EXCELLENCE
           </p>
           <div className="flex gap-8">
-            <span className="text-[9px] font-bold text-slate-600 uppercase tracking-widest">Docs</span>
-            <span className="text-[9px] font-bold text-slate-600 uppercase tracking-widest">Pricing</span>
-            <span className="text-[9px] font-bold text-slate-600 uppercase tracking-widest">Terminal</span>
+            <button 
+              onClick={() => window.open('https://github.com', '_blank')}
+              className="text-[9px] font-bold text-slate-600 uppercase tracking-widest hover:text-indigo-400 transition-colors cursor-pointer"
+            >
+              Docs
+            </button>
+            <button 
+              onClick={() => window.open('https://github.com', '_blank')}
+              className="text-[9px] font-bold text-slate-600 uppercase tracking-widest hover:text-indigo-400 transition-colors cursor-pointer"
+            >
+              Pricing
+            </button>
+            <button 
+              onClick={() => window.open('https://github.com', '_blank')}
+              className="text-[9px] font-bold text-slate-600 uppercase tracking-widest hover:text-indigo-400 transition-colors cursor-pointer"
+            >
+              Terminal
+            </button>
           </div>
         </div>
       </footer>

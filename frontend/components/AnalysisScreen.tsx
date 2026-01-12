@@ -1,15 +1,28 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { InterviewSession, TranscriptEntry } from '../../types';
 import FormulaDisplay from '../../module6/components/FormulaDisplay';
+import { DB } from '../../backend/services/db';
 
 interface AnalysisScreenProps {
   session: InterviewSession;
-  transcripts: TranscriptEntry[];
+  transcripts?: TranscriptEntry[];
   onRestart: () => void;
 }
 
-const AnalysisScreen: React.FC<AnalysisScreenProps> = ({ session, transcripts, onRestart }) => {
+const AnalysisScreen: React.FC<AnalysisScreenProps> = ({ session, transcripts: propTranscripts, onRestart }) => {
+  const [transcripts, setTranscripts] = useState<TranscriptEntry[]>(propTranscripts || []);
+  
+  useEffect(() => {
+    const loadTranscripts = async () => {
+      if (!propTranscripts) {
+        const loaded = await DB.getTranscripts(session.sessionId);
+        setTranscripts(loaded);
+      }
+    };
+    loadTranscripts();
+  }, [session.sessionId, propTranscripts]);
+  
   // Ultra-defensive extraction of session state
   const scores = session?.state?.scores || [];
   const validTranscripts = transcripts?.filter(t => t.speaker === 'user') || [];
@@ -68,7 +81,7 @@ const AnalysisScreen: React.FC<AnalysisScreenProps> = ({ session, transcripts, o
                       <div className="pt-5 border-t border-slate-100">
                         <p className="text-xs text-slate-500 font-bold leading-relaxed">
                           <span className="text-indigo-600 font-black uppercase text-[9px] mr-2">AI Observation:</span> 
-                          {qualitativeFeedback[i+1] || "Technical alignment confirmed."}
+                          {qualitativeFeedback[i+1] || qualitativeFeedback[i] || "Technical alignment confirmed."}
                         </p>
                       </div>
                    </div>

@@ -18,19 +18,29 @@ const App: React.FC = () => {
 
   // Load active session and auth on mount
   useEffect(() => {
-    const activeUser = DB.getAuthSession();
-    if (activeUser) {
-      setUser(activeUser);
-      const activeSession = DB.getSessions().find(s => s.status === 'active');
-      if (activeSession) {
-        setSession(activeSession);
-        setView('interview');
-      } else {
-        setView('setup');
+    const loadUserAndSession = async () => {
+      try {
+        const activeUser = await DB.getAuthSession();
+        if (activeUser) {
+          setUser(activeUser);
+          const sessions = await DB.getSessions();
+          const activeSession = sessions.find(s => s.status === 'active');
+          if (activeSession) {
+            setSession(activeSession);
+            setView('interview');
+          } else {
+            setView('setup');
+          }
+        } else {
+          setView('landing');
+        }
+      } catch (error) {
+        console.error('Error in App useEffect:', error);
+        setView('landing');
       }
-    } else {
-      setView('landing');
-    }
+    };
+    
+    loadUserAndSession();
   }, []);
 
   const handleAuthSuccess = (authenticatedUser: User) => {
@@ -38,8 +48,8 @@ const App: React.FC = () => {
     setView('setup');
   };
 
-  const startInterview = (domain: Domain, difficulty: Difficulty = Difficulty.INTERMEDIATE, qCount: number = 5) => {
-    const bank = getActiveBank();
+  const startInterview = async (domain: Domain, difficulty: Difficulty = Difficulty.INTERMEDIATE, qCount: number = 5) => {
+    const bank = await getActiveBank();
     const domainQuestions = bank.filter(q => q.domain === domain);
     const firstQ = domainQuestions[0] || bank[0];
     
@@ -64,38 +74,45 @@ const App: React.FC = () => {
         fallbackCount: 0
       }
     };
-    DB.saveSession(newSession);
+    await DB.saveSession(newSession);
     setSession(newSession);
     setView('interview');
   };
 
-  const handleTerminate = (e: React.MouseEvent) => {
+  const handleTerminate = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     
-    const confirmed = window.confirm("Do you want to cancel your session? Your progress will be saved in the evaluation dashboard.");
+    const confirmed = window.confirm("Do you want to end this session? Your progress will be saved and you'll see your evaluation dashboard.");
     
-    if (confirmed) {
-      if (session) {
-        const finishedSession: InterviewSession = { 
-          ...session, 
-          status: 'finished', 
-          lastUpdatedAt: Date.now() 
-        };
-        DB.saveSession(finishedSession);
-        setSession(finishedSession);
-        if (window.speechSynthesis) window.speechSynthesis.cancel();
-        setView('analysis');
-      } else {
-        setView('setup');
+    if (confirmed && session) {
+      // Immediately update session status
+      const finishedSession: InterviewSession = { 
+        ...session, 
+        status: 'finished', 
+        lastUpdatedAt: Date.now() 
+      };
+      
+      // Save to DB first
+      await DB.saveSession(finishedSession);
+      
+      // Update state
+      setSession(finishedSession);
+      
+      // Cancel any ongoing audio/speech
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
       }
+      
+      // Navigate to analysis screen
+      setView('analysis');
     }
   };
 
-  const finishInterview = () => {
+  const finishInterview = async () => {
     if (session) {
       const updated: InterviewSession = { ...session, status: "finished", lastUpdatedAt: Date.now() };
-      DB.saveSession(updated);
+      await DB.saveSession(updated);
       setSession(updated);
       setView('analysis');
     }
@@ -110,11 +127,24 @@ const App: React.FC = () => {
 
   // View Router Logic
   if (view === 'landing') {
-    return <LandingPage onGetStarted={() => setView('auth')} onSignIn={() => setView('auth')} />;
+    return (
+      <LandingPage 
+        onGetStarted={() => setView('auth')} 
+        onSignIn={() => setView('auth')}
+        onExploreCurriculum={() => {
+          // If user is authenticated, go to curriculum, otherwise go to auth first
+          if (user) {
+            setView('curriculum');
+          } else {
+            setView('auth');
+          }
+        }}
+      />
+    );
   }
 
   if (view === 'auth') {
-    return <AuthScreen onAuthSuccess={handleAuthSuccess} />;
+    return <AuthScreen onAuthSuccess={handleAuthSuccess} onBack={() => setView('landing')} />;
   }
 
   return (
@@ -176,20 +206,22 @@ const App: React.FC = () => {
       <main className="flex-1 overflow-y-auto relative p-6 md:p-10">
         <div className="max-w-7xl mx-auto w-full h-full">
           {view === 'curriculum' ? (
-            <QuestionBankView />
+            <QuestionBankView onBack={() => setView('setup')} />
           ) : view === 'module6' ? (
             <Module6Dashboard onBack={() => setView('setup')} />
           ) : view === 'analysis' && session ? (
             <AnalysisScreen 
               session={session} 
-              transcripts={DB.getTranscripts(session.sessionId)} 
               onRestart={() => { setSession(null); setView('setup'); }} 
             />
           ) : session && view === 'interview' ? (
             <InterviewBoard session={session} onFinish={finishInterview} setSession={setSession} />
           ) : (
             <div className="h-full flex items-center justify-center">
-              <SetupScreen onStart={startInterview} />
+              <SetupScreen 
+                onStart={startInterview} 
+                onBack={user ? undefined : () => setView('landing')}
+              />
             </div>
           )}
         </div>

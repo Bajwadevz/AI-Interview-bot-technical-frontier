@@ -9,7 +9,26 @@ import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { Question, TranscriptEntry, InterviewSession, Domain, QuestionType } from "../../types";
 import { SYSTEM_PROMPT, getActiveBank } from "../constants";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Lazy initialization - only create client when needed and API key is available
+let aiInstance: GoogleGenAI | null = null;
+
+const getAI = (): GoogleGenAI | null => {
+  if (aiInstance) return aiInstance;
+  
+  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+  if (!apiKey) {
+    console.warn('GEMINI_API_KEY not set. AI features will be disabled.');
+    return null;
+  }
+  
+  try {
+    aiInstance = new GoogleGenAI({ apiKey });
+    return aiInstance;
+  } catch (error) {
+    console.error('Failed to initialize GoogleGenAI:', error);
+    return null;
+  }
+};
 
 export const analyzeAnswerAndGetNext = async (
   session: InterviewSession,
@@ -24,6 +43,17 @@ export const analyzeAnswerAndGetNext = async (
   qualitativeInsight: string;
   communicationStyle: string;
 }> => {
+  const ai = getAI();
+  if (!ai) {
+    return {
+      evaluation: "AI service unavailable. Please set GEMINI_API_KEY in .env.local",
+      nextStep: "next_question",
+      confidenceScore: 0.5,
+      qualitativeInsight: "AI features disabled - API key not configured.",
+      communicationStyle: "Neutral"
+    };
+  }
+
   const prompt = `
     ORCHESTRATOR_MODE: DEEP_ANALYSIS
     DOMAIN: ${session.domain}
@@ -79,6 +109,9 @@ export const analyzeAnswerAndGetNext = async (
 
 export const generateTTS = async (text: string): Promise<string> => {
   if (!text) return "";
+  const ai = getAI();
+  if (!ai) return "";
+  
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
@@ -102,6 +135,12 @@ export const generateBulkQuestions = async (domain: Domain, count: number): Prom
   The 'type' field should always be 'open'.
   The 'domain' field must be exactly '${domain}'.
   Include unique IDs for each question.`;
+
+  const ai = getAI();
+  if (!ai) {
+    console.warn('AI service unavailable for bulk question generation');
+    return [];
+  }
 
   try {
     const response = await ai.models.generateContent({
@@ -158,7 +197,7 @@ export const processTurn = async (
   let botReply = result.followUpText || result.evaluation;
 
   if (result.nextStep === "next_question") {
-    const bank = getActiveBank();
+    const bank = await getActiveBank();
     
     // PRD Adaptive Selection Logic
     // Adjust difficulty target based on technical score
@@ -181,7 +220,8 @@ export const processTurn = async (
     
     if (candidates.length > 0) {
       nextQuestion = candidates[0];
-      botReply = `${result.evaluation} Now, let's move on. ${nextQuestion.text}`;
+      // Don't include question text in botReply - it will be added separately
+      botReply = result.evaluation || "Good. Let's continue.";
     }
   }
   

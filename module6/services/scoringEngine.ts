@@ -58,11 +58,16 @@ export const calculateDynamicScore = (
 
   // PRD LOGIC: S_comm CALCULATION
   // Pace (WPM), Clarity (Semantic Signal), and Eye Contact Telemetry.
-  const wpm = (wordCount / (timeSpentSec || 1)) * 60;
+  const wpm = (wordCount / Math.max(timeSpentSec, 0.1)) * 60; // Prevent division by zero
   // Ideal pace between 110-160 WPM
-  let fPace = (wpm >= 110 && wpm <= 160) ? 1.0 : (wpm < 110 ? wpm / 110 : Math.max(0, 1 - (wpm - 160) / 100));
-  const fClarity = aiConfidence;
-  const fEyeContact = 0.85 + (Math.random() * 0.1); // Simulated telemetry
+  let fPace = 1.0;
+  if (wpm < 110) {
+    fPace = Math.max(0, wpm / 110); // Normalize slower speech
+  } else if (wpm > 160) {
+    fPace = Math.max(0, 1 - (wpm - 160) / 100); // Penalize very fast speech
+  }
+  const fClarity = Math.min(1, Math.max(0, aiConfidence)); // Clamp between 0-1
+  const fEyeContact = 0.85 + (Math.random() * 0.1); // Simulated telemetry (0.85-0.95)
 
   const sComm = (fPace + fClarity + fEyeContact) / 3;
 
