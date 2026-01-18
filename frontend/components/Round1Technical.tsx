@@ -28,7 +28,7 @@ const Round1Technical: React.FC<Round1TechnicalProps> = ({ session, onRound1Comp
   const turnStartTimeRef = useRef(Date.now());
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const questionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const isInitializedRef = useRef(false);
+  const isInitializedRef = useRef<string | false>(false); // Store sessionId to track which session was initialized
 
   // CRITICAL FIX: Load questions with proper error handling and guaranteed exit from loading state
   useEffect(() => {
@@ -36,12 +36,27 @@ const Round1Technical: React.FC<Round1TechnicalProps> = ({ session, onRound1Comp
     let loadingTimeout: NodeJS.Timeout | null = null;
     
     const initializeRound1 = async () => {
-      // Prevent duplicate initialization
-      if (isInitializedRef.current) {
+      // CRITICAL: Reset initialization flag if session actually changed
+      // Use sessionId as the key - if it changes, we need to re-initialize
+      const currentSessionId = session?.sessionId;
+      if (!currentSessionId) {
+        if (isMounted) {
+          setIsLoading(false);
+          setError('Invalid session. Please start a new interview.');
+        }
+        return;
+      }
+      
+      // Prevent duplicate initialization for the SAME session
+      // But allow re-initialization if sessionId changes
+      if (isInitializedRef.current && isInitializedRef.current === currentSessionId) {
+        // Already initialized for this session - just ensure loading is false
         if (isMounted) setIsLoading(false);
         return;
       }
-      isInitializedRef.current = true;
+      
+      // Mark this session as being initialized
+      isInitializedRef.current = currentSessionId as any;
       
       setIsLoading(true);
       setError(null);
@@ -154,10 +169,12 @@ const Round1Technical: React.FC<Round1TechnicalProps> = ({ session, onRound1Comp
           throw new Error('Failed to find a question. Please try starting a new interview.');
         }
         
-        // CRITICAL: Set question and exit loading state
+        // CRITICAL: Set question FIRST, then transcript, then clear loading
+        // Order matters - question must be set before transcript to ensure UI renders correctly
         setCurrentQuestion(q);
         
-        // Add first question to transcript if this is a new session
+        // CRITICAL: Always add first question to transcript if no transcripts exist
+        // This ensures the question is visible even if DB save fails
         if (existingTranscripts.length === 0) {
           const entry: TranscriptEntry = {
             sessionId: session.sessionId,
@@ -166,19 +183,35 @@ const Round1Technical: React.FC<Round1TechnicalProps> = ({ session, onRound1Comp
             text: q.text,
             confidence: 1
           };
+          
+          // Set transcript immediately - don't wait for DB save
           setTranscript([entry]);
           
-          try {
-            await DB.saveTranscript(entry);
-          } catch (error) {
-            console.warn('Error saving initial transcript:', error);
-            // Continue - transcript save is not critical
+          // Save to DB in background (non-blocking)
+          DB.saveTranscript(entry).catch(error => {
+            console.warn('Error saving initial transcript (non-critical):', error);
+          });
+        } else {
+          // Transcripts exist - ensure current question is in transcript if missing
+          const hasQuestionInTranscript = existingTranscripts.some(t => 
+            t.speaker === 'bot' && t.text === q.text
+          );
+          if (!hasQuestionInTranscript) {
+            const entry: TranscriptEntry = {
+              sessionId: session.sessionId,
+              ts: Date.now(),
+              speaker: "bot",
+              text: q.text,
+              confidence: 1
+            };
+            setTranscript(prev => [...prev, entry]);
           }
         }
         
-        // SUCCESS: Clear loading state
+        // SUCCESS: Clear loading state AFTER question and transcript are set
         if (isMounted) {
           setIsLoading(false);
+          setError(null); // Clear any previous errors
           if (loadingTimeout) {
             clearTimeout(loadingTimeout);
             loadingTimeout = null;
@@ -218,7 +251,7 @@ const Round1Technical: React.FC<Round1TechnicalProps> = ({ session, onRound1Comp
         clearTimeout(questionTimeoutRef.current);
       }
     };
-  }, [session?.sessionId, session?.domain, session?.difficulty]); // Simplified deps - only re-run if session changes
+  }, [session?.sessionId]); // CRITICAL: Only depend on sessionId - if sessionId changes, re-initialize. Otherwise, don't re-run.
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -485,7 +518,16 @@ const Round1Technical: React.FC<Round1TechnicalProps> = ({ session, onRound1Comp
 
       {/* Chat Container */}
       <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6 bg-slate-50/20 min-h-0" style={{ scrollBehavior: 'smooth' }}>
-        {transcript.length === 0 && (
+        {/* CRITICAL FIX: Show question even if transcript is empty (fallback) */}
+        {transcript.length === 0 && currentQuestion && (
+          <div className="flex justify-start">
+            <div className="max-w-[85%] lg:max-w-[75%] rounded-[1.8rem] rounded-tl-none border border-slate-100 shadow-md bg-white text-slate-800 px-6 py-4">
+              <div className="whitespace-pre-wrap text-sm font-medium leading-relaxed">{currentQuestion.text}</div>
+            </div>
+          </div>
+        )}
+        
+        {transcript.length === 0 && !currentQuestion && !isLoading && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center space-y-4">
               <div className="w-16 h-16 mx-auto bg-indigo-100 rounded-full flex items-center justify-center">
