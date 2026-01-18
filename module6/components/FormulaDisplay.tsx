@@ -10,7 +10,7 @@ import React from 'react';
 const FormulaDisplay: React.FC = () => {
   return (
     <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6 space-y-4">
-      <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Mathematical Reference (Module 06)</h4>
+      <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Scoring Algorithm Reference</h4>
       
       <div className="space-y-4 font-mono text-[11px] text-slate-600">
         <div className="p-4 bg-white rounded-xl border border-slate-100 shadow-sm">

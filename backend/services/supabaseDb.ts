@@ -5,7 +5,7 @@
  */
 
 import { supabase, TABLES } from './supabase';
-import { InterviewSession, TranscriptEntry, Question, User } from '../../types';
+import { InterviewSession, TranscriptEntry, Question, User, InterviewStatus } from '../../types';
 
 export const SupabaseDB = {
   // ============================================
@@ -71,20 +71,33 @@ export const SupabaseDB = {
   // ============================================
   
   async saveSession(session: InterviewSession): Promise<void> {
+    // Support both new (round1/round2) and legacy (state) structures
+    const sessionData: any = {
+      session_id: session.sessionId,
+      user_id: session.userId,
+      domain: session.domain,
+      difficulty: session.difficulty,
+      question_count: session.questionCount,
+      status: session.status,
+      started_at: session.startedAt,
+      last_updated_at: session.lastUpdatedAt,
+    };
+
+    // New structure: round1 and round2
+    if (session.round1 && session.round2) {
+      sessionData.round1 = session.round1;
+      sessionData.round2 = session.round2;
+      // Also store currentQuestionId for backward compatibility
+      sessionData.current_question_id = session.round1.currentQuestionId || '';
+    } else {
+      // Legacy structure: state and currentQuestionId
+      sessionData.current_question_id = (session as any).currentQuestionId || '';
+      sessionData.state = session.state || {};
+    }
+
     const { error } = await supabase
       .from(TABLES.INTERVIEW_SESSIONS)
-      .upsert({
-        session_id: session.sessionId,
-        user_id: session.userId,
-        domain: session.domain,
-        difficulty: session.difficulty,
-        question_count: session.questionCount,
-        current_question_id: session.currentQuestionId,
-        status: session.status,
-        started_at: session.startedAt,
-        last_updated_at: session.lastUpdatedAt,
-        state: session.state
-      }, {
+      .upsert(sessionData, {
         onConflict: 'session_id'
       });
     
@@ -113,18 +126,76 @@ export const SupabaseDB = {
     
     if (!data) return [];
     
-    return data.map(row => ({
-      sessionId: row.session_id,
-      userId: row.user_id,
-      domain: row.domain,
-      difficulty: row.difficulty,
-      questionCount: row.question_count,
-      currentQuestionId: row.current_question_id,
-      status: row.status,
-      startedAt: row.started_at,
-      lastUpdatedAt: row.last_updated_at,
-      state: row.state
-    }));
+    return data.map(row => {
+      // Support both new and legacy structures
+      if (row.round1 && row.round2) {
+        // New structure
+        const session: InterviewSession = {
+          sessionId: row.session_id,
+          userId: row.user_id,
+          domain: row.domain,
+          difficulty: row.difficulty,
+          questionCount: row.question_count,
+          status: row.status as InterviewStatus,
+          startedAt: row.started_at,
+          lastUpdatedAt: row.last_updated_at,
+          round1: row.round1,
+          round2: row.round2
+        };
+        // Add legacy fields if they exist
+        if (row.current_question_id) {
+          (session as any).currentQuestionId = row.current_question_id;
+        }
+        if (row.state) {
+          (session as any).state = row.state;
+        }
+        return session;
+      } else {
+        // Legacy structure - convert to new format
+        const legacyState = row.state || {};
+        const legacyStatus = row.status as string;
+        
+        // Map legacy status to new status
+        let newStatus: InterviewStatus = 'setup';
+        if (legacyStatus === 'finished') {
+          newStatus = 'finished';
+        } else if (legacyStatus === 'round1' || legacyStatus === 'active') {
+          newStatus = 'round1';
+        } else if (legacyStatus === 'round1_complete') {
+          newStatus = 'round1_complete';
+        } else if (legacyStatus === 'round2') {
+          newStatus = 'round2';
+        } else if (legacyStatus === 'round2_complete') {
+          newStatus = 'round2_complete';
+        }
+        
+        return {
+          sessionId: row.session_id,
+          userId: row.user_id,
+          domain: row.domain,
+          difficulty: row.difficulty,
+          questionCount: row.question_count,
+          status: newStatus,
+          startedAt: row.started_at,
+          lastUpdatedAt: row.last_updated_at,
+          currentQuestionId: row.current_question_id || '',
+          state: legacyState,
+          // Create new structure from legacy
+          round1: {
+            currentQuestionId: row.current_question_id || '',
+            topicProgress: legacyState.topicProgress || [],
+            scores: legacyState.scores || [],
+            qualitativeFeedback: legacyState.qualitativeFeedback || [],
+            avgResponseLatency: legacyState.avgResponseLatency || 0,
+            status: newStatus === 'finished' || newStatus === 'round1_complete' ? 'completed' : 
+                    (newStatus === 'round1' ? 'in_progress' : 'not_started')
+          },
+          round2: {
+            status: newStatus === 'finished' && legacyState.communicationStyles?.length > 0 ? 'completed' : 'not_started'
+          }
+        } as InterviewSession;
+      }
+    });
   },
 
   async getSession(sessionId: string): Promise<InterviewSession | null> {
@@ -142,18 +213,70 @@ export const SupabaseDB = {
     
     if (!data) return null;
     
-    return {
-      sessionId: data.session_id,
-      userId: data.user_id,
-      domain: data.domain,
-      difficulty: data.difficulty,
-      questionCount: data.question_count,
-      currentQuestionId: data.current_question_id,
-      status: data.status,
-      startedAt: data.started_at,
-      lastUpdatedAt: data.last_updated_at,
-      state: data.state
-    };
+    // Use the same conversion logic as getSessions
+    if (data.round1 && data.round2) {
+      const session: InterviewSession = {
+        sessionId: data.session_id,
+        userId: data.user_id,
+        domain: data.domain,
+        difficulty: data.difficulty,
+        questionCount: data.question_count,
+        status: data.status as InterviewStatus,
+        startedAt: data.started_at,
+        lastUpdatedAt: data.last_updated_at,
+        round1: data.round1,
+        round2: data.round2
+      };
+      if (data.current_question_id) {
+        (session as any).currentQuestionId = data.current_question_id;
+      }
+      if (data.state) {
+        (session as any).state = data.state;
+      }
+      return session;
+    } else {
+      // Legacy structure - convert
+      const legacyState = data.state || {};
+      const legacyStatus = data.status as string;
+      
+      let newStatus: InterviewStatus = 'setup';
+      if (legacyStatus === 'finished') {
+        newStatus = 'finished';
+      } else if (legacyStatus === 'round1' || legacyStatus === 'active') {
+        newStatus = 'round1';
+      } else if (legacyStatus === 'round1_complete') {
+        newStatus = 'round1_complete';
+      } else if (legacyStatus === 'round2') {
+        newStatus = 'round2';
+      } else if (legacyStatus === 'round2_complete') {
+        newStatus = 'round2_complete';
+      }
+      
+      return {
+        sessionId: data.session_id,
+        userId: data.user_id,
+        domain: data.domain,
+        difficulty: data.difficulty,
+        questionCount: data.question_count,
+        status: newStatus,
+        startedAt: data.started_at,
+        lastUpdatedAt: data.last_updated_at,
+        currentQuestionId: data.current_question_id || '',
+        state: legacyState,
+        round1: {
+          currentQuestionId: data.current_question_id || '',
+          topicProgress: legacyState.topicProgress || [],
+          scores: legacyState.scores || [],
+          qualitativeFeedback: legacyState.qualitativeFeedback || [],
+          avgResponseLatency: legacyState.avgResponseLatency || 0,
+          status: newStatus === 'finished' || newStatus === 'round1_complete' ? 'completed' : 
+                  (newStatus === 'round1' ? 'in_progress' : 'not_started')
+        },
+        round2: {
+          status: newStatus === 'finished' && legacyState.communicationStyles?.length > 0 ? 'completed' : 'not_started'
+        }
+      } as InterviewSession;
+    }
   },
 
   // ============================================

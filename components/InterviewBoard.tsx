@@ -29,7 +29,8 @@ const InterviewBoard: React.FC<InterviewBoardProps> = ({ session, onFinish, setS
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const q = QUESTION_BANK.find(q => q.id === session.currentQuestionId);
+    const currentQId = (session as any).currentQuestionId || session.round1?.currentQuestionId || '';
+    const q = QUESTION_BANK.find(q => q.id === currentQId);
     if (q) {
       setCurrentQuestion(q);
       addTranscriptEntry("bot", q.text);

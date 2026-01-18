@@ -1,12 +1,13 @@
 
 import React, { useState } from 'react';
-import { Domain, InterviewSession, Difficulty } from './types';
+import { Domain, InterviewSession, Difficulty, InterviewStatus } from './types';
 import { QUESTION_BANK } from './constants';
 import { DB } from './services/db';
 import InterviewBoard from './components/InterviewBoard';
 import SetupScreen from './components/SetupScreen';
 import AnalysisScreen from './components/AnalysisScreen';
-import QuestionBankView from './components/QuestionBankView';
+// Note: This is legacy App.tsx - frontend/App.tsx is the active version
+// import QuestionBankView from './components/QuestionBankView';
 import Module6Dashboard from './module6/Dashboard';
 
 const App: React.FC = () => {
@@ -24,10 +25,22 @@ const App: React.FC = () => {
       domain: domain,
       difficulty: Difficulty.INTERMEDIATE,
       questionCount: 5,
-      currentQuestionId: firstQ.id,
-      status: "active",
+      status: "round1" as InterviewStatus,
       startedAt: Date.now(),
       lastUpdatedAt: Date.now(),
+      round1: {
+        currentQuestionId: firstQ.id,
+        topicProgress: [firstQ.id],
+        scores: [],
+        qualitativeFeedback: ["Assessment environment initialized. Orchestrator ready."],
+        avgResponseLatency: 0,
+        status: "in_progress"
+      },
+      round2: {
+        status: "not_started"
+      },
+      // Legacy fields
+      currentQuestionId: firstQ.id,
       state: {
         topicProgress: [firstQ.id],
         candidateConfidence: 0.5,
@@ -104,7 +117,7 @@ const App: React.FC = () => {
       {/* View Controller */}
       <main className="flex-1 flex flex-col items-center justify-center p-6 md:p-10">
         {view === 'curriculum' ? (
-          <QuestionBankView />
+          <div className="p-8 text-center">Curriculum view - Please use frontend/App.tsx</div>
         ) : view === 'module6' ? (
           <Module6Dashboard onBack={() => setView('setup')} />
         ) : view === 'analysis' && session ? (

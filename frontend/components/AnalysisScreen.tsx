@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { InterviewSession, TranscriptEntry } from '../../types';
 import FormulaDisplay from '../../module6/components/FormulaDisplay';
 import { DB } from '../../backend/services/db';
@@ -23,32 +23,63 @@ const AnalysisScreen: React.FC<AnalysisScreenProps> = ({ session, transcripts: p
     loadTranscripts();
   }, [session.sessionId, propTranscripts]);
   
-  // Ultra-defensive extraction of session state
-  const scores = session?.state?.scores || [];
+  // Extract scores from new structure (round1) or legacy (state)
+  const round1Scores = session?.round1?.scores || session?.state?.scores || [];
+  const round2Score = session?.round2?.communicationScore;
   const validTranscripts = transcripts?.filter(t => t.speaker === 'user') || [];
-  const qualitativeFeedback = session?.state?.qualitativeFeedback || [];
+  const qualitativeFeedback = session?.round1?.qualitativeFeedback || session?.state?.qualitativeFeedback || [];
   const commStyles = session?.state?.communicationStyles || [];
   
-  const avgAggregate = scores.length > 0 
-    ? (scores.reduce((a, b) => a + (b.aggregateScore || 0), 0) / scores.length) 
+  // Calculate Round 1 average (technical)
+  const round1Avg = round1Scores.length > 0 
+    ? (round1Scores.reduce((a, b) => a + (b.aggregateScore || 0), 0) / round1Scores.length) 
     : 0;
+  
+  // Handle zero score edge case
+  const hasValidScores = round1Scores.length > 0 && round1Avg > 0;
+  
+  // Calculate final aggregate (Round 1 technical + Round 2 communication)
+  // If Round 2 exists, use it; otherwise use Round 1 communication scores
+  const round2CommScore = round2Score !== undefined ? round2Score : 
+    (round1Scores.length > 0 ? round1Scores.reduce((a, b) => a + (b.communicationScore || 0), 0) / round1Scores.length : 0);
+  
+  // Check if Round 2 was completed
+  const isRound2Complete = round2Score !== undefined && session.round2.status === 'completed';
+  
+  // Final score: 70% technical (Round 1) + 30% communication (Round 2 or Round 1 fallback)
+  // If Round 2 not completed, weight technical more heavily
+  const finalScore = isRound2Complete 
+    ? (round1Avg * 0.7) + (round2CommScore * 0.3)
+    : round1Avg; // If Round 2 not done, only show Round 1 score
+  
+  // Memoize score calculation
+  const displayScore = useMemo(() => Math.round(finalScore * 100), [finalScore]);
+  const round1DisplayScore = useMemo(() => Math.round(round1Avg * 100), [round1Avg]);
+  const round2DisplayScore = useMemo(() => round2Score !== undefined ? Math.round(round2Score * 100) : null, [round2Score]);
   
   return (
     <div className="w-full max-w-6xl bg-white rounded-[3.5rem] shadow-3xl overflow-hidden border border-slate-100 animate-in fade-in slide-in-from-bottom-8 duration-700">
       <div className="bg-slate-900 p-12 lg:p-16 text-white flex flex-col lg:flex-row justify-between items-end gap-10 border-b border-white/5">
         <div className="space-y-4">
-           <div className="inline-block px-4 py-1.5 bg-indigo-500/10 border border-indigo-500/20 rounded-full text-indigo-400 text-[9px] font-black uppercase tracking-[0.4em]">
-             Module 06 Verified Dossier
+           <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-indigo-500/10 border border-indigo-500/20 rounded-full text-indigo-400 text-[9px] font-black uppercase tracking-[0.4em]">
+             <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-pulse" />
+             Performance Assessment Complete
            </div>
-          <h2 className="text-5xl font-black tracking-tight uppercase">Evaluation Phase</h2>
+          <h2 className="text-5xl font-black tracking-tight uppercase">Evaluation Summary</h2>
           <p className="text-slate-500 font-bold uppercase tracking-[0.2em] text-[10px]">
-            Session: {session?.sessionId || 'N/A'} • Domain: {session?.domain || 'N/A'}
+            Domain: {session?.domain || 'N/A'} • Round 1: {round1Scores.length} Questions • Round 2: {isRound2Complete ? 'Complete' : 'Not Completed'}
+            {!isRound2Complete && (
+              <span className="block mt-2 text-orange-500">Note: Final score based on Round 1 only</span>
+            )}
+            {!hasValidScores && (
+              <span className="block mt-2 text-slate-400">No scores available yet. Complete Round 1 to see your evaluation.</span>
+            )}
           </p>
         </div>
-        <div className="text-center bg-white/5 px-10 py-8 rounded-[2.5rem] border border-white/5 backdrop-blur-md shrink-0">
-          <p className="text-[10px] font-black text-indigo-300 uppercase tracking-[0.3em] mb-3 italic">Final Mastery Score</p>
+        <div className="text-center bg-white/5 px-10 py-8 rounded-[2.5rem] border border-white/5 backdrop-blur-md shrink-0 animate-in zoom-in-95 duration-700 delay-200">
+          <p className="text-[10px] font-black text-indigo-300 uppercase tracking-[0.3em] mb-3 italic">Final Score</p>
           <div className="flex items-baseline gap-2">
-            <span className="text-6xl font-black">{Math.round(avgAggregate * 100)}</span>
+            <span className="text-6xl font-black tabular-nums">{displayScore}</span>
             <span className="text-2xl font-black text-indigo-400">%</span>
           </div>
         </div>
@@ -58,8 +89,8 @@ const AnalysisScreen: React.FC<AnalysisScreenProps> = ({ session, transcripts: p
         <div className="xl:col-span-2 space-y-12">
           <section>
              <div className="flex items-center justify-between mb-8">
-               <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.4em]">Interaction Timeline</h3>
-               <span className="text-[9px] font-bold text-slate-300 uppercase">Assessment Cycles: {scores.length}</span>
+               <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.4em]">Round 1: Technical Interview Timeline</h3>
+               <span className="text-[9px] font-bold text-slate-300 uppercase">Questions: {round1Scores.length}</span>
              </div>
              <div className="space-y-6 max-h-[600px] overflow-y-auto pr-6 custom-scrollbar">
                {validTranscripts.length > 0 ? (
@@ -68,12 +99,12 @@ const AnalysisScreen: React.FC<AnalysisScreenProps> = ({ session, transcripts: p
                       <div className="flex justify-between items-center mb-5">
                         <div className="flex items-center gap-3">
                           <span className="w-7 h-7 bg-slate-900 text-white rounded-lg flex items-center justify-center text-[9px] font-black italic">{i+1}</span>
-                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{commStyles[i] || 'Analyzed'}</span>
+                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{commStyles[i] || 'Technical Response'}</span>
                         </div>
                         <div className="flex items-center gap-3">
-                           <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">Score: {Math.round((scores[i]?.aggregateScore || 0) * 100)}%</span>
+                           <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">Score: {Math.round((round1Scores[i]?.aggregateScore || 0) * 100)}%</span>
                            <div className="w-16 h-1 bg-slate-200 rounded-full overflow-hidden">
-                              <div className="h-full bg-indigo-500" style={{ width: `${(scores[i]?.aggregateScore || 0) * 100}%` }} />
+                              <div className="h-full bg-indigo-500" style={{ width: `${(round1Scores[i]?.aggregateScore || 0) * 100}%` }} />
                            </div>
                         </div>
                       </div>
@@ -125,12 +156,35 @@ const AnalysisScreen: React.FC<AnalysisScreenProps> = ({ session, transcripts: p
 
           <FormulaDisplay />
           
+          {/* Round Scores Summary */}
+          <div className="space-y-6">
+            <div className="p-8 bg-indigo-50 border-2 border-indigo-100 rounded-[2rem]">
+              <h3 className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-4">Round 1: Technical</h3>
+              <div className="flex items-baseline gap-2">
+                <span className="text-4xl font-black text-indigo-600 tabular-nums">{round1DisplayScore}</span>
+                <span className="text-lg font-black text-indigo-400">%</span>
+              </div>
+              <p className="text-xs text-slate-600 mt-2">{round1Scores.length} questions answered</p>
+            </div>
+            
+            {round2DisplayScore !== null && (
+              <div className="p-8 bg-emerald-50 border-2 border-emerald-100 rounded-[2rem]">
+                <h3 className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-4">Round 2: Communication</h3>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-4xl font-black text-emerald-600 tabular-nums">{round2DisplayScore}</span>
+                  <span className="text-lg font-black text-emerald-400">%</span>
+                </div>
+                <p className="text-xs text-slate-600 mt-2">Video recording completed</p>
+              </div>
+            )}
+          </div>
+          
           <div className="p-10 bg-indigo-600 rounded-[2.5rem] text-white shadow-3xl shadow-indigo-200">
-            <h3 className="text-[10px] font-black text-indigo-200 uppercase tracking-[0.3em] mb-5">Mastery Verdict</h3>
+            <h3 className="text-[10px] font-black text-indigo-200 uppercase tracking-[0.3em] mb-5">Final Verdict</h3>
             <p className="text-2xl font-black leading-tight mb-8">
-              {avgAggregate > 0.8 ? 'Superior technical alignment detected.' : 
-               avgAggregate > 0.6 ? 'Adequate domain proficiency confirmed.' : 
-               'Foundational mastery; further study recommended.'}
+              {finalScore > 0.8 ? 'Superior performance across both technical and communication dimensions.' : 
+               finalScore > 0.6 ? 'Strong performance with solid technical foundation and clear communication.' : 
+               'Good foundation demonstrated. Continued practice recommended.'}
             </p>
             <button 
               onClick={onRestart}

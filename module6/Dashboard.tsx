@@ -37,7 +37,7 @@ const Module6Dashboard: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     <div className="w-full max-w-7xl animate-in fade-in slide-in-from-bottom-8 duration-700">
       <div className="mb-16 flex justify-between items-end">
         <div>
-          <h2 className="text-5xl font-black text-slate-900 tracking-tighter mb-4">Module 06 Analytics</h2>
+          <h2 className="text-5xl font-black text-slate-900 tracking-tighter mb-4">Performance Analytics</h2>
           <p className="text-slate-400 font-bold uppercase tracking-[0.4em] text-[10px]">High-Precision Dynamic Scoring Hub</p>
         </div>
         <button onClick={onBack} className="px-10 py-3.5 bg-white border rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-sm hover:bg-slate-50 transition-all">Exit Hub</button>

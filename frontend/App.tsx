@@ -1,47 +1,103 @@
 
 import React, { useState, useEffect } from 'react';
-import { Domain, InterviewSession, Difficulty, User } from '../types';
+import { Domain, InterviewSession, Difficulty, User, InterviewStatus } from '../types';
 import { getActiveBank } from '../backend/constants';
 import { DB } from '../backend/services/db';
-import InterviewBoard from './components/InterviewBoard';
 import SetupScreen from './components/SetupScreen';
 import AnalysisScreen from './components/AnalysisScreen';
 import QuestionBankView from './components/QuestionBankView';
 import Module6Dashboard from '../module6/Dashboard';
 import LandingPage from './components/LandingPage';
 import AuthScreen from './components/Auth/AuthScreen';
+import RoundOverview from './components/RoundOverview';
+import Round1Technical from './components/Round1Technical';
+import Round1Complete from './components/Round1Complete';
+import Round2Communication from './components/Round2Communication';
+import SyncStatus from './components/SyncStatus';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<InterviewSession | null>(null);
-  const [view, setView] = useState<'landing' | 'auth' | 'setup' | 'interview' | 'analysis' | 'curriculum' | 'module6'>('landing');
+  const [view, setView] = useState<'landing' | 'auth' | 'setup' | 'round-overview' | 'round1' | 'round1-complete' | 'round2' | 'analysis' | 'curriculum' | 'module6'>('landing');
 
-  // Load active session and auth on mount
+  // CRITICAL FIX: Do NOT auto-login on mount
+  // Only restore session if user explicitly authenticated in this session
+  // OR if there's a valid session AND user explicitly navigates to authenticated area
   useEffect(() => {
-    const loadUserAndSession = async () => {
+    let isMounted = true;
+    
+    // DO NOT check for auth session on mount - this causes auto-login
+    // User must explicitly log in or sign up
+    // Only check session when:
+    // 1. User explicitly clicks login/signup (handled by handleAuthSuccess)
+    // 2. User navigates to protected route (will redirect to landing)
+    
+    // Start at landing page - no auto-login
+    if (isMounted) {
+      setView('landing');
+      setUser(null);
+      setSession(null);
+    }
+    
+    // Listen for auth state changes ONLY (not initial load)
+    const setupAuthListener = async () => {
       try {
-        const activeUser = await DB.getAuthSession();
-        if (activeUser) {
-          setUser(activeUser);
-          const sessions = await DB.getSessions();
-          const activeSession = sessions.find(s => s.status === 'active');
-          if (activeSession) {
-            setSession(activeSession);
-            setView('interview');
-          } else {
-            setView('setup');
+        const supabaseModule = await import('../backend/services/supabase');
+        
+        // Listen for auth state changes (explicit login/logout events)
+        supabaseModule.supabase.auth.onAuthStateChange((event, session) => {
+          if (!isMounted) return;
+          
+          // Only handle explicit auth events, not initial session check
+          if (event === 'SIGNED_IN') {
+            // User explicitly signed in - load user data
+            DB.getAuthSession().then(user => {
+              if (user && isMounted) {
+                setUser(user);
+                setView('setup');
+              }
+            });
+          } else if (event === 'SIGNED_OUT') {
+            // User explicitly signed out - clear state
+            if (isMounted) {
+              setUser(null);
+              setSession(null);
+              setView('landing');
+            }
           }
-        } else {
-          setView('landing');
-        }
+          // Ignore 'INITIAL_SESSION' and 'TOKEN_REFRESHED' - these are automatic, not explicit
+        });
       } catch (error) {
-        console.error('Error in App useEffect:', error);
-        setView('landing');
+        console.error('Error setting up auth listener:', error);
       }
     };
     
-    loadUserAndSession();
-  }, []);
+    setupAuthListener();
+    
+    // Handle page visibility changes - but do NOT auto-restore session
+    const handleVisibilityChange = () => {
+      // Do nothing - user must explicitly authenticate
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Handle beforeunload to save state
+    const handleBeforeUnload = () => {
+      if (session && ['round1', 'round2'].includes(session.status)) {
+        DB.saveSession(session).catch(() => {
+          // Silently fail
+        });
+      }
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      isMounted = false;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []); // Empty deps - only run once on mount, never auto-check auth
 
   const handleAuthSuccess = (authenticatedUser: User) => {
     setUser(authenticatedUser);
@@ -49,34 +105,90 @@ const App: React.FC = () => {
   };
 
   const startInterview = async (domain: Domain, difficulty: Difficulty = Difficulty.INTERMEDIATE, qCount: number = 5) => {
-    const bank = await getActiveBank();
-    const domainQuestions = bank.filter(q => q.domain === domain);
-    const firstQ = domainQuestions[0] || bank[0];
-    
+    // Create new session with two-round structure
     const newSession: InterviewSession = {
       sessionId: `aib_${Date.now()}`,
       userId: user?.id || "demo_user",
       domain: domain,
       difficulty: difficulty,
       questionCount: qCount,
-      currentQuestionId: firstQ.id,
-      status: "active",
+      status: "setup" as InterviewStatus,
       startedAt: Date.now(),
       lastUpdatedAt: Date.now(),
-      state: {
-        topicProgress: [firstQ.id],
-        candidateConfidence: 0.5,
+      round1: {
+        currentQuestionId: "",
+        topicProgress: [],
         scores: [],
-        qualitativeFeedback: ["Orchestrator online. Awaiting performance telemetry."],
-        communicationStyles: [],
-        clarityAttempts: 0,
+        qualitativeFeedback: [],
         avgResponseLatency: 0,
-        fallbackCount: 0
+        status: "not_started"
+      },
+      round2: {
+        status: "not_started"
       }
     };
     await DB.saveSession(newSession);
     setSession(newSession);
-    setView('interview');
+    setView('round-overview');
+  };
+
+  const handleStartRound1 = () => {
+    if (session) {
+      // Guard: Don't allow restarting if already completed
+      if (session.round1.status === 'completed' || session.status === 'round1_complete') {
+        // Round 1 already completed, go to completion screen
+        setView('round1-complete');
+        return;
+      }
+      const updated = { 
+        ...session, 
+        status: "round1" as InterviewStatus,
+        round1: {
+          ...session.round1,
+          status: "in_progress"
+        }
+      };
+      setSession(updated);
+      DB.saveSession(updated);
+      setView('round1');
+    }
+  };
+
+  const handleRound1Complete = () => {
+    if (session) {
+      const updated = { ...session, status: "round1_complete" as InterviewStatus };
+      setSession(updated);
+      DB.saveSession(updated);
+      setView('round1-complete');
+    }
+  };
+
+  const handleStartRound2 = () => {
+    if (session) {
+      const updated = { 
+        ...session, 
+        status: "round2" as InterviewStatus,
+        round2: {
+          ...session.round2,
+          status: "in_progress"
+        }
+      };
+      setSession(updated);
+      DB.saveSession(updated);
+      setView('round2');
+    }
+  };
+
+  const handleRound2Complete = () => {
+    if (session) {
+      const updated = { 
+        ...session, 
+        status: "finished" as InterviewStatus 
+      };
+      setSession(updated);
+      DB.saveSession(updated);
+      setView('analysis');
+    }
   };
 
   const handleTerminate = async (e: React.MouseEvent) => {
@@ -118,11 +230,21 @@ const App: React.FC = () => {
     }
   };
 
-  const logout = () => {
-    DB.setAuthSession(null);
-    setUser(null);
-    setSession(null);
-    setView('landing');
+  const logout = async () => {
+    try {
+      // Clear Supabase session
+      await DB.setAuthSession(null);
+      // Clear local state
+      setUser(null);
+      setSession(null);
+      setView('landing');
+    } catch (error) {
+      console.error('Error during logout:', error);
+      // Force clear local state even if Supabase logout fails
+      setUser(null);
+      setSession(null);
+      setView('landing');
+    }
   };
 
   // View Router Logic
@@ -167,7 +289,7 @@ const App: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-6">
-          {view !== 'interview' && (
+          {!['round1', 'round2'].includes(view) && (
             <div className="flex gap-6 items-center">
               <button 
                 onClick={() => setView('curriculum')}
@@ -189,40 +311,86 @@ const App: React.FC = () => {
               </button>
             </div>
           )}
-          
-          {session && view === 'interview' && (
-            <button 
-              type="button"
-              onClick={handleTerminate}
-              className="px-6 py-2.5 bg-red-50 text-red-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-100 transition-all border border-red-100 shadow-sm cursor-pointer active:scale-95 z-[150]"
-            >
-              End Session
-            </button>
-          )}
         </div>
       </header>
 
       {/* Main Content Area */}
       <main className="flex-1 overflow-y-auto relative p-6 md:p-10">
-        <div className="max-w-7xl mx-auto w-full h-full">
+        <div className="max-w-7xl mx-auto w-full h-full flex items-center justify-center">
           {view === 'curriculum' ? (
             <QuestionBankView onBack={() => setView('setup')} />
           ) : view === 'module6' ? (
             <Module6Dashboard onBack={() => setView('setup')} />
+          ) : view === 'round-overview' && session ? (
+            // Guard: Ensure session is in valid state for overview
+            session.status === 'setup' || session.status === 'round-overview' ? (
+              <RoundOverview
+                domain={session.domain}
+                difficulty={session.difficulty}
+                questionCount={session.questionCount}
+                onStartRound1={handleStartRound1}
+                onBack={() => setView('setup')}
+              />
+            ) : (
+              // Invalid state - redirect to appropriate view
+              <div className="w-full max-w-4xl bg-white rounded-[2.5rem] shadow-2xl border border-slate-100 p-16 text-center">
+                <h2 className="text-2xl font-black text-slate-900 mb-4">Session Already In Progress</h2>
+                <p className="text-slate-600 mb-8">Redirecting to your active interview...</p>
+                <div className="w-16 h-16 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto" />
+              </div>
+            )
+          ) : view === 'round1' && session ? (
+            <Round1Technical
+              session={session}
+              onRound1Complete={handleRound1Complete}
+              setSession={setSession}
+            />
+          ) : view === 'round1-complete' && session ? (
+            <Round1Complete
+              session={session}
+              onProceedToRound2={handleStartRound2}
+            />
+          ) : view === 'round2' && session ? (
+            // Guard: Only allow Round 2 if Round 1 is completed
+            session.round1.status === 'completed' || session.status === 'round1_complete' ? (
+              <Round2Communication
+                session={session}
+                onRound2Complete={handleRound2Complete}
+                setSession={setSession}
+              />
+            ) : (
+              <div className="w-full max-w-4xl bg-white rounded-[2.5rem] shadow-2xl border border-red-100 p-16 text-center">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <h2 className="text-2xl font-black text-slate-900 mb-4">Round 1 Must Be Completed First</h2>
+                <p className="text-slate-600 mb-8">Please complete the technical interview before proceeding to the communication round.</p>
+                <button
+                  onClick={() => {
+                    if (session.status === 'round1') {
+                      setView('round1');
+                    } else {
+                      setView('setup');
+                    }
+                  }}
+                  className="px-8 py-4 bg-indigo-600 text-white rounded-xl font-black text-sm uppercase tracking-widest hover:bg-indigo-700 transition-all"
+                >
+                  {session.status === 'round1' ? 'Continue Round 1' : 'Start New Interview'}
+                </button>
+              </div>
+            )
           ) : view === 'analysis' && session ? (
             <AnalysisScreen 
               session={session} 
               onRestart={() => { setSession(null); setView('setup'); }} 
             />
-          ) : session && view === 'interview' ? (
-            <InterviewBoard session={session} onFinish={finishInterview} setSession={setSession} />
           ) : (
-            <div className="h-full flex items-center justify-center">
-              <SetupScreen 
-                onStart={startInterview} 
-                onBack={user ? undefined : () => setView('landing')}
-              />
-            </div>
+            <SetupScreen 
+              onStart={startInterview} 
+              onBack={user ? undefined : () => setView('landing')}
+            />
           )}
         </div>
       </main>
@@ -230,6 +398,9 @@ const App: React.FC = () => {
       <footer className="py-4 bg-white border-t border-slate-100 flex flex-col items-center gap-2 shrink-0">
         <p className="text-[8px] font-black text-slate-300 uppercase tracking-[0.4em]">Engineered for Excellence • AI Interview Bot Platform</p>
       </footer>
+      
+      {/* Sync Status Indicator */}
+      <SyncStatus isOnline={navigator.onLine} />
     </div>
   );
 };

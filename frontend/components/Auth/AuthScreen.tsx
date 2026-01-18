@@ -72,10 +72,16 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onBack }) => {
       if (result.success && result.user) {
         onAuthSuccess(result.user);
       } else {
-        setError(result.error || "Access Denied.");
+        // Provide specific error messages
+        const errorMsg = result.error || (isLogin ? "Invalid email or password." : "Registration failed. Please try again.");
+        setError(errorMsg);
       }
-    } catch (err) {
-      setError("Connection failure. Please retry.");
+    } catch (err: any) {
+      // Handle network errors, API failures, etc.
+      const errorMsg = err?.message?.includes('network') || err?.message?.includes('fetch')
+        ? "Connection failure. Please check your internet connection and retry."
+        : "An unexpected error occurred. Please try again.";
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }

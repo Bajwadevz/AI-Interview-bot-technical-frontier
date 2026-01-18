@@ -26,7 +26,7 @@ const ScoreBreakdown: React.FC<Props> = ({ score, label }) => {
           <div>
             <div className="flex items-center gap-2 mb-2">
               <span className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse" />
-              <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.4em]">Engine Phase 06</h4>
+              <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.4em]">Scoring Engine</h4>
             </div>
             <h3 className="text-3xl font-black tracking-tighter">{label || "Scoring Output"}</h3>
           </div>
@@ -81,7 +81,7 @@ const ScoreBreakdown: React.FC<Props> = ({ score, label }) => {
           {/* Final Aggregated Score Card */}
           <div className="mt-12 p-8 bg-white/5 rounded-[2rem] border border-white/5 backdrop-blur-sm">
             <div className="flex justify-between items-center mb-2">
-              <span className="text-[12px] font-black text-slate-400 uppercase tracking-[0.3em]">Module 06 Aggregate</span>
+              <span className="text-[12px] font-black text-slate-400 uppercase tracking-[0.3em]">Final Aggregate Score</span>
               <div className="flex items-baseline gap-1">
                 <span className="text-5xl font-black text-white">{pct(score.aggregateScore)}</span>
                 <span className="text-xl font-black text-indigo-400">%</span>

@@ -11,6 +11,7 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart, onBack }) => {
   const [domain, setDomain] = useState<Domain | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty>(Difficulty.INTERMEDIATE);
   const [qCount, setQCount] = useState(5);
+  const [isStarting, setIsStarting] = useState(false);
 
   return (
     <div className="w-full max-w-5xl animate-in fade-in slide-in-from-bottom-10 duration-700">
@@ -43,13 +44,23 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart, onBack }) => {
             {Object.values(Domain).map(d => (
               <button 
                 key={d}
-                onClick={() => setDomain(d)}
-                className={`p-6 text-left rounded-3xl border-2 transition-all ${
+                onClick={() => !isStarting && setDomain(d)}
+                disabled={isStarting}
+                className={`p-6 text-left rounded-3xl border-2 transition-all relative ${
                   domain === d 
-                  ? 'bg-slate-900 border-slate-900 text-white shadow-xl scale-[1.02]' 
+                  ? 'bg-slate-900 border-slate-900 text-white shadow-xl' 
                   : 'bg-white border-slate-100 text-slate-800 hover:border-indigo-200 hover:shadow-lg'
-                }`}
+                } ${isStarting ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer active:scale-[0.98]'} focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2`}
+                aria-pressed={domain === d}
+                aria-label={`Select ${d} domain`}
               >
+                {domain === d && (
+                  <div className="absolute top-3 right-3 w-5 h-5 bg-indigo-500 rounded-full flex items-center justify-center">
+                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                )}
                 <span className="block text-sm font-black mb-2 uppercase tracking-tight">{d}</span>
                 <span className={`text-[8px] font-bold uppercase tracking-widest ${domain === d ? 'text-indigo-400' : 'text-slate-400'}`}>Professional Track</span>
               </button>
@@ -63,18 +74,21 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart, onBack }) => {
             <h3 className="text-xs font-black uppercase tracking-widest text-slate-800">Difficulty Intensity</h3>
             <div className="grid grid-cols-3 gap-3">
               {[
-                { label: 'Standard', val: Difficulty.BEGINNER },
-                { label: 'Elite', val: Difficulty.INTERMEDIATE },
-                { label: 'Expert', val: Difficulty.ADVANCED }
+                { label: 'Standard', val: Difficulty.BEGINNER, desc: 'Foundational' },
+                { label: 'Elite', val: Difficulty.INTERMEDIATE, desc: 'Professional' },
+                { label: 'Expert', val: Difficulty.ADVANCED, desc: 'Advanced' }
               ].map(lvl => (
                 <button 
                   key={lvl.label}
-                  onClick={() => setDifficulty(lvl.val)}
-                  className={`py-4 rounded-2xl text-[9px] font-black uppercase tracking-widest border-2 transition-all ${
+                  onClick={() => !isStarting && setDifficulty(lvl.val)}
+                  disabled={isStarting}
+                  className={`py-4 rounded-2xl text-[9px] font-black uppercase tracking-widest border-2 transition-all relative ${
                     difficulty === lvl.val 
                     ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' 
-                    : 'bg-white border-slate-100 text-slate-400 hover:bg-slate-50'
-                  }`}
+                    : 'bg-white border-slate-100 text-slate-400 hover:bg-slate-50 hover:border-indigo-200'
+                  } ${isStarting ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer active:scale-95'} focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2`}
+                  aria-pressed={difficulty === lvl.val}
+                  title={lvl.desc}
                 >
                   {lvl.label}
                 </button>
@@ -99,12 +113,43 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onStart, onBack }) => {
           </div>
 
           <button 
-            disabled={!domain}
-            onClick={() => domain && onStart(domain, difficulty, qCount)}
-            className="w-full py-6 bg-slate-900 text-white rounded-3xl font-black text-xs uppercase tracking-[0.4em] shadow-2xl hover:bg-indigo-600 transition-all disabled:opacity-20 flex items-center justify-center gap-4 group"
+            disabled={!domain || isStarting}
+            onClick={async () => {
+              if (domain && !isStarting) {
+                setIsStarting(true);
+                try {
+                  // Verify question bank is available before starting
+                  const { getActiveBank } = await import('../../backend/constants');
+                  const bank = await getActiveBank();
+                  const domainQuestions = bank.filter(q => q.domain === domain);
+                  
+                  if (domainQuestions.length === 0) {
+                    throw new Error(`No questions available for ${domain}. Please select a different domain.`);
+                  }
+                  
+                  await onStart(domain, difficulty, qCount);
+                } catch (error: any) {
+                  console.error('Error starting interview:', error);
+                  // Show user-friendly error
+                  alert(error?.message || 'Failed to start interview. Please try again.');
+                  setIsStarting(false);
+                }
+              }
+            }}
+            className="w-full py-6 bg-slate-900 text-white rounded-3xl font-black text-xs uppercase tracking-[0.4em] shadow-2xl hover:bg-indigo-600 transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-4 group focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+            aria-label="Start interview session"
           >
-            Start Practice
-            <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+            {isStarting ? (
+              <>
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <span>Initializing...</span>
+              </>
+            ) : (
+              <>
+                <span>Start Practice</span>
+                <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+              </>
+            )}
           </button>
         </div>
       </div>

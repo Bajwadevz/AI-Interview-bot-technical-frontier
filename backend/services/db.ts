@@ -58,12 +58,15 @@ export const DB = {
   
   /**
    * Get auth session (now uses Supabase Auth)
+   * Only returns user if there's an explicit, valid Supabase session
+   * Does NOT auto-login from localStorage alone
    */
   getAuthSession: async (): Promise<User | null> => {
     try {
-      // Try Supabase first
+      // Only check Supabase - require explicit authentication
       const user = await SupabaseAuth.getCurrentUser();
       if (user) {
+        // Cache in localStorage for quick access, but Supabase is source of truth
         localStorage.setItem(KEYS.ACTIVE_USER, JSON.stringify(user));
         return user;
       }
@@ -71,9 +74,10 @@ export const DB = {
       console.error('Error getting auth session from Supabase:', error);
     }
     
-    // Fallback to localStorage
-    const data = localStorage.getItem(KEYS.ACTIVE_USER);
-    return data ? JSON.parse(data) : null;
+    // Clear localStorage if Supabase session doesn't exist
+    // Do NOT fallback to localStorage alone - prevents auto-login
+    localStorage.removeItem(KEYS.ACTIVE_USER);
+    return null;
   },
 
   /**

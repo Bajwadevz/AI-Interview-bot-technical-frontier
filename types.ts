@@ -65,22 +65,46 @@ export interface TranscriptEntry {
   confidence: number;
 }
 
+export type RoundStatus = "not_started" | "in_progress" | "completed";
+export type InterviewStatus = "setup" | "round1" | "round1_complete" | "round2" | "round2_complete" | "finished";
+
+export interface Round1State {
+  currentQuestionId: string;
+  topicProgress: string[];
+  scores: DetailedScore[];
+  qualitativeFeedback: string[];
+  avgResponseLatency: number;
+  status: RoundStatus;
+}
+
+export interface Round2State {
+  videoRecordingUrl?: string;
+  recordingDuration?: number;
+  communicationScore?: number;
+  communicationFeedback?: string;
+  status: RoundStatus;
+  prompt?: string; // Domain-specific prompt for Round 2
+}
+
 export interface InterviewSession {
   sessionId: string;
   userId: string;
   domain: Domain;
   difficulty: Difficulty;
   questionCount: number;
-  currentQuestionId: string;
-  status: "active" | "paused" | "finished";
+  status: InterviewStatus;
   startedAt: number;
   lastUpdatedAt: number;
-  state: {
+  round1: Round1State;
+  round2: Round2State;
+  // Legacy fields for backward compatibility
+  currentQuestionId?: string;
+  state?: {
     topicProgress: string[];
     candidateConfidence: number;
     scores: DetailedScore[];
     qualitativeFeedback: string[];
-    communicationStyles: string[]; // NEW: Tracks behavioral telemetry per turn
+    communicationStyles: string[];
     clarityAttempts: number;
     avgResponseLatency: number;
     fallbackCount: number;

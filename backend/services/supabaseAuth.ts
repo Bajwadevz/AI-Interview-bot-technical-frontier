@@ -143,9 +143,25 @@ export const SupabaseAuth = {
 
   /**
    * Get current authenticated user
+   * Only returns user if there's an explicit, valid, non-expired session
    */
   async getCurrentUser(): Promise<User | null> {
     try {
+      // First check if there's an active session (not just user data)
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      // If no session or session error, user is not authenticated
+      if (sessionError || !session) {
+        return null;
+      }
+      
+      // Verify session is not expired
+      if (session.expires_at && session.expires_at < Date.now() / 1000) {
+        // Session expired - sign out
+        await supabase.auth.signOut();
+        return null;
+      }
+      
       const { data: { user }, error } = await supabase.auth.getUser();
       
       if (error || !user) {
