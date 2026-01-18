@@ -6,8 +6,15 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = 'https://vfdkbdhntohtmheuzsaa.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_YKIDaodU8Hd9WG6RLwCb4g_3Up5fIre';
+// Use environment variables or fallback to the provided keys (ensure these are valid)
+// @ts-ignore - Vite types are not fully loaded in this context
+const env = (import.meta as any).env || {};
+const SUPABASE_URL = env.VITE_SUPABASE_URL || 'https://vfdkbdhntohtmheuzsaa.supabase.co';
+const SUPABASE_ANON_KEY = env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_YKIDaodU8Hd9WG6RLwCb4g_3Up5fIre';
+
+if (!env.VITE_SUPABASE_URL) {
+  console.warn('VITE_SUPABASE_URL not found in environment, using default.');
+}
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {

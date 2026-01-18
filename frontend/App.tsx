@@ -23,81 +23,93 @@ const App: React.FC = () => {
   // CRITICAL FIX: Do NOT auto-login on mount
   // Only restore session if user explicitly authenticated in this session
   // OR if there's a valid session AND user explicitly navigates to authenticated area
+  // CORE LOGIC: Authentication & Session Management
+  // Requirement: Users are never automatically logged in on first load.
   useEffect(() => {
     let isMounted = true;
-    
-    // DO NOT check for auth session on mount - this causes auto-login
-    // User must explicitly log in or sign up
-    // Only check session when:
-    // 1. User explicitly clicks login/signup (handled by handleAuthSuccess)
-    // 2. User navigates to protected route (will redirect to landing)
-    
-    // Start at landing page - no auto-login
+
+    // 1. Initial State: Always start at 'landing' with no user processing.
     if (isMounted) {
       setView('landing');
       setUser(null);
       setSession(null);
     }
-    
-    // Listen for auth state changes ONLY (not initial load)
-    const setupAuthListener = async () => {
-      try {
-        const supabaseModule = await import('../backend/services/supabase');
-        
-        // Listen for auth state changes (explicit login/logout events)
-        supabaseModule.supabase.auth.onAuthStateChange((event, session) => {
+
+    // 2. Auth Listener: Only react to explicit SIGNED_IN events (user clicked login)
+    // We ignore INITIAL_SESSION to prevent auto-login from cookies
+    const setupAuthListener = () => {
+      import('../backend/services/supabase').then(({ supabase }) => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
           if (!isMounted) return;
-          
-          // Only handle explicit auth events, not initial session check
+
           if (event === 'SIGNED_IN') {
-            // User explicitly signed in - load user data
-            DB.getAuthSession().then(user => {
-              if (user && isMounted) {
-                setUser(user);
+            // Explicit login action occurred
+            const user = await DB.getAuthSession();
+            if (user && isMounted) {
+              console.log('User explicitly signed in:', user.email);
+              setUser(user);
+
+              // RESUME LOGIC: Check for active sessions to restore progress
+              try {
+                const sessions = await DB.getSessions();
+                // Find recently updated active session
+                const activeSession = sessions
+                  .sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt)
+                  .find(s => ['round1', 'round1_complete', 'round2'].includes(s.status));
+
+                if (activeSession) {
+                  console.log('Resuming active session:', activeSession.sessionId);
+                  setSession(activeSession);
+
+                  // Route to correct view based on status
+                  if (activeSession.status === 'round1') setView('round1');
+                  else if (activeSession.status === 'round1_complete') setView('round1-complete');
+                  else if (activeSession.status === 'round2') setView('round2');
+                  else setView('setup');
+                } else {
+                  setView('setup');
+                }
+              } catch (err) {
+                console.error('Error recovering session:', err);
                 setView('setup');
               }
-            });
+            }
           } else if (event === 'SIGNED_OUT') {
-            // User explicitly signed out - clear state
+            // Explicit logout action
             if (isMounted) {
+              console.log('User signed out');
               setUser(null);
               setSession(null);
               setView('landing');
             }
           }
-          // Ignore 'INITIAL_SESSION' and 'TOKEN_REFRESHED' - these are automatic, not explicit
         });
-      } catch (error) {
-        console.error('Error setting up auth listener:', error);
-      }
+
+        return () => subscription.unsubscribe();
+      }).catch(err => console.error("Failed to load supabase", err));
     };
-    
+
     setupAuthListener();
-    
-    // Handle page visibility changes - but do NOT auto-restore session
-    const handleVisibilityChange = () => {
-      // Do nothing - user must explicitly authenticate
-    };
-    
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    
-    // Handle beforeunload to save state
-    const handleBeforeUnload = () => {
-      if (session && ['round1', 'round2'].includes(session.status)) {
-        DB.saveSession(session).catch(() => {
-          // Silently fail
-        });
-      }
-    };
-    
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    
+
+    // 3. Cleanup
     return () => {
       isMounted = false;
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, []); // Empty deps - only run once on mount, never auto-check auth
+  }, []); // Empty dependency array = run once on mount
+
+  // Prevent browser back/forward buttons from breaking flow state
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      // Always force back to landing if user tries to use browser navigation
+      // This enforces our internal state machine
+      if (view !== 'landing') {
+        window.history.pushState(null, '', window.location.pathname);
+      }
+    };
+    window.history.pushState(null, '', window.location.pathname);
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [view]);
 
   const handleAuthSuccess = (authenticatedUser: User) => {
     setUser(authenticatedUser);
@@ -112,7 +124,11 @@ const App: React.FC = () => {
       domain: domain,
       difficulty: difficulty,
       questionCount: qCount,
+      questionsAnswered: 0,
       status: "setup" as InterviewStatus,
+      round1Status: "not_started",
+      round2Status: "not_started",
+      terminationSource: "none",
       startedAt: Date.now(),
       lastUpdatedAt: Date.now(),
       round1: {
@@ -140,9 +156,10 @@ const App: React.FC = () => {
         setView('round1-complete');
         return;
       }
-      const updated = { 
-        ...session, 
+      const updated: InterviewSession = {
+        ...session,
         status: "round1" as InterviewStatus,
+        round1Status: "in_progress",
         round1: {
           ...session.round1,
           status: "in_progress"
@@ -156,7 +173,15 @@ const App: React.FC = () => {
 
   const handleRound1Complete = () => {
     if (session) {
-      const updated = { ...session, status: "round1_complete" as InterviewStatus };
+      const updated: InterviewSession = {
+        ...session,
+        status: "round1_complete" as InterviewStatus,
+        round1Status: "completed",
+        round1: {
+          ...session.round1,
+          status: "completed"
+        }
+      };
       setSession(updated);
       DB.saveSession(updated);
       setView('round1-complete');
@@ -165,9 +190,10 @@ const App: React.FC = () => {
 
   const handleStartRound2 = () => {
     if (session) {
-      const updated = { 
-        ...session, 
+      const updated: InterviewSession = {
+        ...session,
         status: "round2" as InterviewStatus,
+        round2Status: "in_progress",
         round2: {
           ...session.round2,
           status: "in_progress"
@@ -181,9 +207,15 @@ const App: React.FC = () => {
 
   const handleRound2Complete = () => {
     if (session) {
-      const updated = { 
-        ...session, 
-        status: "finished" as InterviewStatus 
+      const updated: InterviewSession = {
+        ...session,
+        status: "finished" as InterviewStatus,
+        round2Status: "completed",
+        endedAt: Date.now(),
+        round2: {
+          ...session.round2,
+          status: "completed"
+        }
       };
       setSession(updated);
       DB.saveSession(updated);
@@ -191,67 +223,86 @@ const App: React.FC = () => {
     }
   };
 
-  const handleTerminate = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    const confirmed = window.confirm("Do you want to end this session? Your progress will be saved and you'll see your evaluation dashboard.");
-    
+  const handleTerminate = async (updates?: Partial<InterviewSession>) => {
+    // Note: event argument removed or handled dynamically if needed, 
+    // but typically called programmatically now via props.
+
+    // If called via event, we might need checking, but for now assuming direct calls or wrapped.
+    const confirmed = window.confirm("Do you want to end this session early? Your progress will be saved.");
+
     if (confirmed && session) {
-      // Immediately update session status
-      const finishedSession: InterviewSession = { 
-        ...session, 
-        status: 'finished', 
-        lastUpdatedAt: Date.now() 
+      // Logic for Early Termination
+      const isRound1 = session.status === 'round1';
+      const isRound2 = session.status === 'round2';
+
+      // Merge provided updates (e.g. from Round 2 saving video) with current session
+      // We prioritize 'updates' over 'session' state
+      const baseSession = { ...session, ...updates };
+
+      const finishedSession: InterviewSession = {
+        ...baseSession,
+        status: 'finished',
+        terminationSource: 'user',
+        endedAt: Date.now(),
+        lastUpdatedAt: Date.now(),
+        round1Status: isRound1 ? 'terminated' : baseSession.round1Status,
+        round2Status: isRound2 ? 'terminated' : (baseSession.round2Status === 'not_started' ? 'skipped' : baseSession.round2Status),
+        round1: {
+          ...baseSession.round1,
+          status: isRound1 ? 'terminated' : baseSession.round1.status
+        },
+        round2: {
+          ...baseSession.round2,
+          status: isRound2 ? 'terminated' : baseSession.round2.status
+        }
       };
-      
+
+      // If terminated in Round 1, ensure Round 2 is marked skipped/not attempted
+      if (isRound1) {
+        finishedSession.round2Status = 'skipped';
+      }
+
       // Save to DB first
       await DB.saveSession(finishedSession);
-      
+
       // Update state
       setSession(finishedSession);
-      
+
       // Cancel any ongoing audio/speech
       if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
       }
-      
-      // Navigate to analysis screen
-      setView('analysis');
-    }
-  };
 
-  const finishInterview = async () => {
-    if (session) {
-      const updated: InterviewSession = { ...session, status: "finished", lastUpdatedAt: Date.now() };
-      await DB.saveSession(updated);
-      setSession(updated);
+      // Navigate to analysis screen
       setView('analysis');
     }
   };
 
   const logout = async () => {
     try {
-      // Clear Supabase session
+      // 1. Clear Supabase session
       await DB.setAuthSession(null);
-      // Clear local state
+      // 2. Clear local state immediately for UI responsiveness
       setUser(null);
       setSession(null);
       setView('landing');
+      // 3. Clear any other potential storage
+      localStorage.clear();
     } catch (error) {
       console.error('Error during logout:', error);
       // Force clear local state even if Supabase logout fails
       setUser(null);
       setSession(null);
       setView('landing');
+      localStorage.clear();
     }
   };
 
   // View Router Logic
   if (view === 'landing') {
     return (
-      <LandingPage 
-        onGetStarted={() => setView('auth')} 
+      <LandingPage
+        onGetStarted={() => setView('auth')}
         onSignIn={() => setView('auth')}
         onExploreCurriculum={() => {
           // If user is authenticated, go to curriculum, otherwise go to auth first
@@ -273,8 +324,8 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans antialiased text-slate-900 overflow-hidden">
       {/* Internal Navigation Header */}
       <header className="bg-white border-b border-slate-200 px-8 py-4 flex justify-between items-center sticky top-0 z-[100] shadow-sm shrink-0">
-        <div 
-          className="flex items-center gap-4 cursor-pointer group" 
+        <div
+          className="flex items-center gap-4 cursor-pointer group"
           onClick={() => {
             if (view !== 'interview') setView('setup');
           }}
@@ -287,29 +338,38 @@ const App: React.FC = () => {
             <p className="text-[8px] text-slate-400 font-black uppercase tracking-[0.2em] mt-1.5">{user?.name || "Guest Candidate"}</p>
           </div>
         </div>
-        
+
         <div className="flex items-center gap-6">
-          {!['round1', 'round2'].includes(view) && (
-            <div className="flex gap-6 items-center">
-              <button 
-                onClick={() => setView('curriculum')}
-                className={`text-[9px] font-black uppercase tracking-widest transition-colors ${view === 'curriculum' ? 'text-indigo-600' : 'text-slate-400 hover:text-indigo-600'}`}
-              >
-                Curriculum
-              </button>
-              <button 
-                onClick={() => setView('module6')}
-                className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${view === 'module6' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-              >
-                Insights Hub
-              </button>
-              <button 
-                onClick={logout}
-                className="text-[9px] font-black uppercase tracking-widest text-red-400 hover:text-red-600"
-              >
-                Logout
-              </button>
-            </div>
+          <div className="flex gap-6 items-center">
+            <button
+              onClick={() => setView('curriculum')}
+              className={`text-[9px] font-black uppercase tracking-widest transition-colors ${view === 'curriculum' ? 'text-indigo-600' : 'text-slate-400 hover:text-indigo-600'}`}
+            >
+              Curriculum
+            </button>
+            <button
+              onClick={() => setView('module6')}
+              className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${view === 'module6' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            >
+              Insights Hub
+            </button>
+            <button
+              onClick={logout}
+              className="text-[9px] font-black uppercase tracking-widest text-red-400 hover:text-red-600"
+            >
+              Logout
+            </button>
+          </div>
+          {['round1', 'round2'].includes(view) && (
+            <button
+              onClick={() => handleTerminate()}
+              className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 border border-red-100 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-red-100 transition-all shadow-sm"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              End Session
+            </button>
           )}
         </div>
       </header>
@@ -344,6 +404,8 @@ const App: React.FC = () => {
               session={session}
               onRound1Complete={handleRound1Complete}
               setSession={setSession}
+              // @ts-ignore
+              onTerminate={() => handleTerminate()}
             />
           ) : view === 'round1-complete' && session ? (
             <Round1Complete
@@ -357,6 +419,8 @@ const App: React.FC = () => {
                 session={session}
                 onRound2Complete={handleRound2Complete}
                 setSession={setSession}
+                // @ts-ignore
+                onTerminate={() => handleTerminate()}
               />
             ) : (
               <div className="w-full max-w-4xl bg-white rounded-[2.5rem] shadow-2xl border border-red-100 p-16 text-center">
@@ -382,13 +446,13 @@ const App: React.FC = () => {
               </div>
             )
           ) : view === 'analysis' && session ? (
-            <AnalysisScreen 
-              session={session} 
-              onRestart={() => { setSession(null); setView('setup'); }} 
+            <AnalysisScreen
+              session={session}
+              onRestart={() => { setSession(null); setView('setup'); }}
             />
           ) : (
-            <SetupScreen 
-              onStart={startInterview} 
+            <SetupScreen
+              onStart={startInterview}
               onBack={user ? undefined : () => setView('landing')}
             />
           )}
@@ -398,7 +462,7 @@ const App: React.FC = () => {
       <footer className="py-4 bg-white border-t border-slate-100 flex flex-col items-center gap-2 shrink-0">
         <p className="text-[8px] font-black text-slate-300 uppercase tracking-[0.4em]">Engineered for Excellence • AI Interview Bot Platform</p>
       </footer>
-      
+
       {/* Sync Status Indicator */}
       <SyncStatus isOnline={navigator.onLine} />
     </div>

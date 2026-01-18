@@ -18,7 +18,7 @@ export interface User {
   name: string;
   isVerified: boolean;
   avatar?: string;
-  history: string[]; 
+  history: string[];
 }
 
 export enum Domain {
@@ -65,8 +65,9 @@ export interface TranscriptEntry {
   confidence: number;
 }
 
-export type RoundStatus = "not_started" | "in_progress" | "completed";
+export type RoundStatus = "not_started" | "in_progress" | "completed" | "terminated" | "skipped";
 export type InterviewStatus = "setup" | "round1" | "round1_complete" | "round2" | "round2_complete" | "finished";
+export type TerminationSource = "user" | "system" | "timeout" | "error" | "none";
 
 export interface Round1State {
   currentQuestionId: string;
@@ -92,11 +93,18 @@ export interface InterviewSession {
   domain: Domain;
   difficulty: Difficulty;
   questionCount: number;
+  questionsAnswered: number; // Single source of truth for progress
   status: InterviewStatus;
+  round1Status: RoundStatus; // Explicit top-level status
+  round2Status: RoundStatus; // Explicit top-level status
+  terminationSource: TerminationSource;
   startedAt: number;
+  endedAt?: number;
   lastUpdatedAt: number;
+
   round1: Round1State;
   round2: Round2State;
+
   // Legacy fields for backward compatibility
   currentQuestionId?: string;
   state?: {
