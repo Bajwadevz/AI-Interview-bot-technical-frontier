@@ -140,7 +140,11 @@ export const SupabaseDB = {
           startedAt: row.started_at,
           lastUpdatedAt: row.last_updated_at,
           round1: row.round1,
-          round2: row.round2
+          round2: row.round2,
+          questionsAnswered: row.question_count || 0,
+          round1Status: 'completed', // best guess 
+          round2Status: 'completed', // best guess
+          terminationSource: 'none'
         };
         // Add legacy fields if they exist
         if (row.current_question_id) {
@@ -178,6 +182,10 @@ export const SupabaseDB = {
           status: newStatus,
           startedAt: row.started_at,
           lastUpdatedAt: row.last_updated_at,
+          questionsAnswered: row.question_count || 0,
+          round1Status: 'completed',
+          round2Status: 'completed',
+          terminationSource: 'none',
           currentQuestionId: row.current_question_id || '',
           state: legacyState,
           // Create new structure from legacy
@@ -224,6 +232,10 @@ export const SupabaseDB = {
         status: data.status as InterviewStatus,
         startedAt: data.started_at,
         lastUpdatedAt: data.last_updated_at,
+        questionsAnswered: data.question_count || 0,
+        round1Status: 'completed',
+        round2Status: 'completed',
+        terminationSource: 'none',
         round1: data.round1,
         round2: data.round2
       };
@@ -261,6 +273,10 @@ export const SupabaseDB = {
         status: newStatus,
         startedAt: data.started_at,
         lastUpdatedAt: data.last_updated_at,
+        questionsAnswered: data.question_count || 0,
+        round1Status: 'completed',
+        round2Status: 'completed',
+        terminationSource: 'none',
         currentQuestionId: data.current_question_id || '',
         state: legacyState,
         round1: {
@@ -418,6 +434,89 @@ export const SupabaseDB = {
       console.error('Error clearing data:', sessionsError || questionsError);
       throw sessionsError || questionsError;
     }
+  },
+
+  // ============================================
+  // FEEDBACK OPERATIONS
+  // ============================================
+
+  async saveFeedbackEntry(entry: any): Promise<void> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+    
+    const { error } = await supabase
+      .from(TABLES.FEEDBACK_ENTRIES)
+      .insert({
+        session_id: entry.sessionId || entry.questionId, // Hack since feedback entry is tied to session implicitly
+        question_id: entry.questionId,
+        question_text: entry.questionText,
+        strengths: entry.strengths,
+        weaknesses: entry.weaknesses,
+        missing_keywords: entry.missingKeywords,
+        suggestions: entry.suggestions,
+        timestamp: entry.timestamp,
+        user_id: user.id
+      });
+    
+    if (error) {
+      console.error('Error saving feedback entry:', error);
+      throw error;
+    }
+  },
+
+  async getFeedbackEntries(sessionId: string): Promise<any[]> {
+    const { data, error } = await supabase
+      .from(TABLES.FEEDBACK_ENTRIES)
+      .select('*')
+      .eq('session_id', sessionId)
+      .order('timestamp', { ascending: true });
+    
+    if (error) {
+      console.error('Error getting feedback entries:', error);
+      throw error;
+    }
+    
+    if (!data) return [];
+    
+    return data.map(row => ({
+      sessionId: row.session_id,
+      questionId: row.question_id,
+      questionText: row.question_text,
+      strengths: row.strengths,
+      weaknesses: row.weaknesses,
+      missingKeywords: row.missing_keywords,
+      suggestions: row.suggestions,
+      timestamp: row.timestamp
+    }));
+  },
+
+  async getAllUserFeedback(): Promise<any[]> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data, error } = await supabase
+      .from(TABLES.FEEDBACK_ENTRIES)
+      .select('*')
+      .eq('user_id', user.id)
+      .order('timestamp', { ascending: false });
+    
+    if (error) {
+      console.error('Error getting all user feedback:', error);
+      throw error;
+    }
+    
+    if (!data) return [];
+    
+    return data.map(row => ({
+      sessionId: row.session_id,
+      questionId: row.question_id,
+      questionText: row.question_text,
+      strengths: row.strengths,
+      weaknesses: row.weaknesses,
+      missingKeywords: row.missing_keywords,
+      suggestions: row.suggestions,
+      timestamp: row.timestamp
+    }));
   }
 };
 

@@ -29,6 +29,8 @@ export const TABLES = {
   PROFILES: 'profiles',
   INTERVIEW_SESSIONS: 'interview_sessions',
   TRANSCRIPT_ENTRIES: 'transcript_entries',
-  CUSTOM_QUESTIONS: 'custom_questions'
+  CUSTOM_QUESTIONS: 'custom_questions',
+  FEEDBACK_ENTRIES: 'feedback_entries',
+  SCORES: 'scores'
 } as const;
 

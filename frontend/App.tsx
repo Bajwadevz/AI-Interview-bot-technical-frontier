@@ -14,11 +14,15 @@ import Round1Technical from './components/Round1Technical';
 import Round1Complete from './components/Round1Complete';
 import Round2Communication from './components/Round2Communication';
 import SyncStatus from './components/SyncStatus';
+import FeedbackDashboard from './components/FeedbackDashboard';
+import OrchestrationDashboard from './components/OrchestrationDashboard';
+import DataDashboard from './components/DataDashboard';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<InterviewSession | null>(null);
-  const [view, setView] = useState<'landing' | 'auth' | 'setup' | 'round-overview' | 'round1' | 'round1-complete' | 'round2' | 'analysis' | 'curriculum' | 'module6'>('landing');
+  const [view, setView] = useState<'landing' | 'auth' | 'setup' | 'round-overview' | 'round1' | 'round1-complete' | 'round2' | 'analysis' | 'curriculum' | 'module6' | 'feedback' | 'orchestration' | 'data-repository'>('landing');
 
   // CRITICAL FIX: Do NOT auto-login on mount
   // Only restore session if user explicitly authenticated in this session
@@ -349,9 +353,27 @@ const App: React.FC = () => {
             </button>
             <button
               onClick={() => setView('module6')}
-              className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${view === 'module6' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              className={`text-[9px] font-black uppercase tracking-widest transition-colors ${view === 'module6' ? 'text-indigo-600' : 'text-slate-400 hover:text-indigo-600'}`}
             >
-              Insights Hub
+              Module 6
+            </button>
+            <button
+              onClick={() => setView('feedback')}
+              className={`text-[9px] font-black uppercase tracking-widest transition-colors ${view === 'feedback' ? 'text-indigo-600' : 'text-slate-400 hover:text-indigo-600'}`}
+            >
+              Feedback
+            </button>
+            <button
+              onClick={() => setView('orchestration')}
+              className={`text-[9px] font-black uppercase tracking-widest transition-colors ${view === 'orchestration' ? 'text-indigo-600' : 'text-slate-400 hover:text-indigo-600'}`}
+            >
+              Orchestrator
+            </button>
+            <button
+              onClick={() => setView('data-repository')}
+              className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${view === 'data-repository' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            >
+              Data Repository
             </button>
             <button
               onClick={logout}
@@ -381,6 +403,12 @@ const App: React.FC = () => {
             <QuestionBankView onBack={() => setView('setup')} />
           ) : view === 'module6' ? (
             <Module6Dashboard onBack={() => setView('setup')} />
+          ) : view === 'feedback' ? (
+            <FeedbackDashboard onBack={() => setView('setup')} />
+          ) : view === 'orchestration' ? (
+            <OrchestrationDashboard session={session} onBack={() => setView('setup')} onStartNew={() => setView('setup')} />
+          ) : view === 'data-repository' ? (
+            <DataDashboard onBack={() => setView('setup')} />
           ) : view === 'round-overview' && session ? (
             // Guard: Ensure session is in valid state for overview
             session.status === 'setup' || session.status === 'round-overview' ? (
@@ -400,13 +428,15 @@ const App: React.FC = () => {
               </div>
             )
           ) : view === 'round1' && session ? (
-            <Round1Technical
-              session={session}
-              onRound1Complete={handleRound1Complete}
-              setSession={setSession}
-              // @ts-ignore
-              onTerminate={() => handleTerminate()}
-            />
+            <ErrorBoundary>
+              <Round1Technical
+                session={session}
+                onRound1Complete={handleRound1Complete}
+                setSession={setSession}
+                // @ts-ignore
+                onTerminate={() => handleTerminate()}
+              />
+            </ErrorBoundary>
           ) : view === 'round1-complete' && session ? (
             <Round1Complete
               session={session}
@@ -415,13 +445,15 @@ const App: React.FC = () => {
           ) : view === 'round2' && session ? (
             // Guard: Only allow Round 2 if Round 1 is completed
             session.round1.status === 'completed' || session.status === 'round1_complete' ? (
-              <Round2Communication
-                session={session}
-                onRound2Complete={handleRound2Complete}
-                setSession={setSession}
-                // @ts-ignore
-                onTerminate={() => handleTerminate()}
-              />
+              <ErrorBoundary>
+                <Round2Communication
+                  session={session}
+                  onRound2Complete={handleRound2Complete}
+                  setSession={setSession}
+                  // @ts-ignore
+                  onTerminate={() => handleTerminate()}
+                />
+              </ErrorBoundary>
             ) : (
               <div className="w-full max-w-4xl bg-white rounded-[2.5rem] shadow-2xl border border-red-100 p-16 text-center">
                 <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">

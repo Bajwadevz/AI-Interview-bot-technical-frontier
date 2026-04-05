@@ -5,6 +5,7 @@
  */
 
 import { DetailedScore } from './module6/types';
+export type { DetailedScore };
 
 export enum UserRole {
   CANDIDATE = "candidate",
@@ -74,6 +75,7 @@ export interface Round1State {
   topicProgress: string[];
   scores: DetailedScore[];
   qualitativeFeedback: string[];
+  feedbackEntries?: FeedbackEntry[];
   avgResponseLatency: number;
   status: RoundStatus;
 }
@@ -117,4 +119,37 @@ export interface InterviewSession {
     avgResponseLatency: number;
     fallbackCount: number;
   };
+}
+
+export interface FeedbackEntry {
+  questionId: string;
+  questionText: string;
+  strengths: string[];
+  weaknesses: string[];
+  missingKeywords: string[];
+  suggestions: string[];
+  timestamp: number;
+}
+
+export interface QuestionQueueItem {
+  question: Question;
+  status: 'pending' | 'active' | 'completed' | 'skipped';
+  startedAt?: number;
+  completedAt?: number;
+  timeSpentSec?: number;
+}
+
+export interface TimerState {
+  questionTimeLimit: number;
+  sessionTimeLimit: number;
+  questionTimeRemaining: number;
+  sessionTimeRemaining: number;
+  isRunning: boolean;
+}
+
+export interface OrchestrationEvent {
+  type: 'state_change' | 'question_complete' | 'question_skip' | 'timer_expired' | 'error' | 'network_issue' | 'api_failure';
+  message: string;
+  timestamp: number;
+  metadata?: Record<string, any>;
 }

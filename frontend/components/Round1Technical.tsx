@@ -10,6 +10,10 @@ import { processTurn } from '../../backend/services/geminiService';
 import { DB } from '../../backend/services/db';
 import { calculateDynamicScore } from '../../module6/services/scoringEngine';
 import { UI_CONFIG, SESSION_CONFIG } from '../constants';
+import FeedbackCard from './FeedbackCard';
+import SessionTimer from './SessionTimer';
+import { useInterviewTimer } from '../../backend/services/timerService';
+import { generateDetailedFeedback } from '../../backend/services/feedbackEngine';
 
 interface Round1TechnicalProps {
   session: InterviewSession;
@@ -35,6 +39,41 @@ const Round1Technical: React.FC<Round1TechnicalProps> = ({ session, onRound1Comp
 
   // Ref to track if we've started the initialization for this specific session ID
   const initSessionIdRef = useRef<string | null>(null);
+
+  // Track termination status to prevent async updates after end session
+  const isTerminatedRef = useRef(false);
+
+  // Wrap onTerminate to set the ref
+  const handleSafeTerminate = () => {
+    isTerminatedRef.current = true;
+    onTerminate();
+  };
+
+  const { 
+    questionTimeRemaining, 
+    sessionTimeRemaining, 
+    isRunning, 
+    startTimer, 
+    pauseTimer, 
+    resetQuestionTimer 
+  } = useInterviewTimer({
+    questionTimeLimitSec: 120,
+    sessionTimeLimitSec: session?.questionCount ? session.questionCount * 150 : 750,
+    onQuestionExpired: () => {
+      submitAnswer("[Time expired]");
+    },
+    onSessionExpired: () => {
+      handleSafeTerminate();
+    }
+  });
+
+  useEffect(() => {
+    if (!isLoading && currentQuestion && !isTerminatedRef.current) {
+      startTimer();
+    } else {
+      pauseTimer();
+    }
+  }, [isLoading, currentQuestion, startTimer, pauseTimer, isTerminatedRef.current]);
 
   useEffect(() => {
     let isMounted = true;
@@ -218,25 +257,17 @@ const Round1Technical: React.FC<Round1TechnicalProps> = ({ session, onRound1Comp
     }
   }, [session.sessionId]);
 
-  // Track termination status to prevent async updates after end session
-  const isTerminatedRef = useRef(false);
-
-  // Wrap onTerminate to set the ref
-  const handleSafeTerminate = () => {
-    isTerminatedRef.current = true;
-    onTerminate();
-  };
-
-  const submitAnswer = async () => {
+  const submitAnswer = async (autoResponse?: string) => {
+    const finalInput = autoResponse || userInput;
     // Intercept "End Session" command
-    if (userInput.trim().toLowerCase() === 'end session') {
+    if (finalInput.trim().toLowerCase() === 'end session') {
       handleSafeTerminate();
       return;
     }
 
-    if (!userInput.trim() || !currentQuestion || isTerminatedRef.current) return;
+    if (!finalInput.trim() || !currentQuestion || isTerminatedRef.current) return;
 
-    const trimmedInput = userInput.trim();
+    const trimmedInput = finalInput.trim();
 
     // 1. Validation (Sync)
     if (trimmedInput.length < UI_CONFIG.MIN_MESSAGE_LENGTH) {
@@ -269,6 +300,7 @@ const Round1Technical: React.FC<Round1TechnicalProps> = ({ session, onRound1Comp
     const capturedQuestion = currentQuestion;
     const capturedTurnDuration = Math.max(0.1, (Date.now() - turnStartTimeRef.current) / 1000);
     setUserInput("");
+    setIsProcessing(true); // Ensure lock is maintained
 
     // 3. Update Transcript (User Answer)
     const userEntry: TranscriptEntry = {
@@ -338,6 +370,7 @@ const Round1Technical: React.FC<Round1TechnicalProps> = ({ session, onRound1Comp
 
       // Update UI for Next Question
       setCurrentQuestion(nextQ);
+      resetQuestionTimer();
 
       // Add Bot Message (Next Question) with small delay for natural feel
       setTimeout(() => {
@@ -400,20 +433,20 @@ const Round1Technical: React.FC<Round1TechnicalProps> = ({ session, onRound1Comp
         // Calculate Score
         const metrics = calculateDynamicScore(capturedInput, capturedQuestion, aiResult.confidenceScore || 0.5, capturedTurnDuration);
 
-        // Update Session with Score (Fetch latest to avoid race?)
-        // In a real app, we'd use functional update or DB merge. 
-        // Here, we'll try to update the DB directly then refresh local if needed, 
-        // or just update local state gently.
+        const fbEntry = await generateDetailedFeedback(capturedQuestion, capturedInput, aiResult.insight, metrics);
 
+        // Update Session with Score
         setSession(prev => {
           if (!prev) return null;
           const updated = { ...prev };
           updated.round1.scores = [...(updated.round1.scores || []), metrics];
           updated.round1.qualitativeFeedback = [...(updated.round1.qualitativeFeedback || []), aiResult.insight || "Analyzed"];
+          updated.round1.feedbackEntries = [...(updated.round1.feedbackEntries || []), fbEntry];
           updated.round1.avgResponseLatency = ((updated.round1.avgResponseLatency || 0) * (updated.questionsAnswered - 1) + (capturedTurnDuration * 1000)) / updated.questionsAnswered;
 
           // Fire DB save for scores
           DB.saveSession(updated).catch(console.error);
+          DB.saveFeedbackEntry({ ...fbEntry, sessionId: updated.sessionId }).catch(console.error);
           return updated;
         });
 
@@ -456,6 +489,12 @@ const Round1Technical: React.FC<Round1TechnicalProps> = ({ session, onRound1Comp
             </p>
           </div>
           <div className="flex items-center gap-4">
+            <SessionTimer 
+              questionTimeRemaining={questionTimeRemaining} 
+              sessionTimeRemaining={sessionTimeRemaining} 
+              questionTimeLimit={120} 
+              sessionTimeLimit={session.questionCount * 150} 
+            />
             <button
               onClick={() => handleSafeTerminate()}
               className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-200 border border-red-500/20 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all"
@@ -492,12 +531,25 @@ const Round1Technical: React.FC<Round1TechnicalProps> = ({ session, onRound1Comp
         {transcript.map((entry, idx) => {
           const isUser = entry.speaker === 'user';
           const isConsecutive = idx > 0 && transcript[idx - 1].speaker === entry.speaker;
+          const relatedFb = !isUser && idx > 0 && transcript[idx - 1].speaker === 'user' 
+            ? session.round1?.feedbackEntries?.[transcript.filter((t, i) => i < idx && t.speaker === 'user').length - 1]
+            : null;
+
           return (
-            <div key={`${entry.ts}-${idx}`} className={`flex ${isUser ? 'justify-end' : 'justify-start'} ${isConsecutive ? 'mt-2' : 'mt-4'}`}>
-              <div className={`max-w-[85%] lg:max-w-[75%] rounded-[1.8rem] px-6 py-4 text-sm font-medium leading-relaxed ${isUser ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-800 rounded-tl-none border border-slate-100 shadow-sm'}`}>
-                <div className="whitespace-pre-wrap">{entry.text}</div>
+            <React.Fragment key={`${entry.ts}-${idx}`}>
+              <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} ${isConsecutive ? 'mt-2' : 'mt-4'}`}>
+                <div className={`max-w-[85%] lg:max-w-[75%] rounded-[1.8rem] px-6 py-4 text-sm font-medium leading-relaxed ${isUser ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white text-slate-800 rounded-tl-none border border-slate-100 shadow-sm'}`}>
+                  <div className="whitespace-pre-wrap">{entry.text}</div>
+                </div>
               </div>
-            </div>
+              {relatedFb && (
+                <div className="flex justify-start mt-2 ml-4">
+                  <div className="animate-in fade-in zoom-in duration-500 delay-500 fill-mode-both">
+                    <FeedbackCard feedback={relatedFb} />
+                  </div>
+                </div>
+              )}
+            </React.Fragment>
           )
         })}
 
@@ -522,10 +574,17 @@ const Round1Technical: React.FC<Round1TechnicalProps> = ({ session, onRound1Comp
           placeholder="Type your answer here... (Type 'end session' to quit)"
           className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl resize-none focus:ring-4 focus:ring-indigo-500/5 outline-none text-sm min-h-[100px] transition-all font-semibold shadow-inner placeholder:text-slate-300"
         />
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-4">
           <button
-            onClick={submitAnswer}
-            disabled={!userInput.trim() || isProcessing}
+            onClick={() => submitAnswer("[Skipped]")}
+            disabled={isProcessing}
+            className="bg-slate-200 text-slate-600 rounded-full font-black text-[9px] uppercase tracking-widest px-6 py-4 transition-all hover:bg-slate-300 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            Skip Question
+          </button>
+          <button
+            onClick={() => submitAnswer()}
+            disabled={(!userInput.trim() && !isProcessing) || isProcessing}
             className="px-8 py-4 bg-slate-900 text-white rounded-full font-black text-[9px] uppercase tracking-[0.3em] shadow-2xl hover:bg-indigo-600 transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {isProcessing ? "Sending..." : "Submit Answer"}

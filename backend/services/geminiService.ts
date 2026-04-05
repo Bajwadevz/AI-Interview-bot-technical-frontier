@@ -12,7 +12,7 @@ import { SYSTEM_PROMPT, getActiveBank } from "../constants";
 // Lazy initialization - only create client when needed and API key is available
 let aiInstance: GoogleGenAI | null = null;
 
-const getAI = (): GoogleGenAI | null => {
+export const getAI = (): GoogleGenAI | null => {
   if (aiInstance) return aiInstance;
   
   const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;

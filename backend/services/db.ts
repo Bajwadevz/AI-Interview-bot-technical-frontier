@@ -5,7 +5,7 @@
  * PURPOSE: Database service - now uses Supabase (maintains backward compatibility)
  */
 
-import { InterviewSession, TranscriptEntry, Question, User } from "../../types";
+import { InterviewSession, TranscriptEntry, Question, User, FeedbackEntry } from "../../types";
 import { SupabaseDB } from "./supabaseDb";
 import { SupabaseAuth } from "./supabaseAuth";
 
@@ -15,7 +15,8 @@ const KEYS = {
   TRANSCRIPTS: "aib_v4_transcripts",
   CUSTOM_QUESTIONS: "aib_v4_custom",
   USERS: "aib_v4_users",
-  ACTIVE_USER: "aib_v4_auth"
+  ACTIVE_USER: "aib_v4_auth",
+  FEEDBACK: "aib_v4_feedback"
 };
 
 export const DB = {
@@ -184,5 +185,44 @@ export const DB = {
     }
     // Also clear localStorage
     localStorage.clear();
+  },
+
+  /**
+   * Save feedback entry
+   */
+  async saveFeedbackEntry(entry: FeedbackEntry & { sessionId: string }): Promise<void> {
+    try {
+      await SupabaseDB.saveFeedbackEntry(entry);
+    } catch (error) {
+      console.error('Error saving feedback entry to Supabase, falling back to localStorage:', error);
+      const all = JSON.parse(localStorage.getItem(KEYS.FEEDBACK) || "[]");
+      all.push(entry);
+      localStorage.setItem(KEYS.FEEDBACK, JSON.stringify(all));
+    }
+  },
+
+  /**
+   * Get feedback entries for a session
+   */
+  async getFeedbackEntries(sessionId: string): Promise<FeedbackEntry[]> {
+    try {
+      return await SupabaseDB.getFeedbackEntries(sessionId);
+    } catch (error) {
+      console.error('Error getting feedback entries from Supabase, falling back to localStorage:', error);
+      const all = JSON.parse(localStorage.getItem(KEYS.FEEDBACK) || "[]");
+      return all.filter((f: any) => f.sessionId === sessionId);
+    }
+  },
+
+  /**
+   * Get all feedback for the user
+   */
+  async getAllUserFeedback(): Promise<FeedbackEntry[]> {
+    try {
+      return await SupabaseDB.getAllUserFeedback();
+    } catch (error) {
+      console.error('Error getting all feedback from Supabase, falling back to localStorage:', error);
+      return JSON.parse(localStorage.getItem(KEYS.FEEDBACK) || "[]");
+    }
   }
 };
