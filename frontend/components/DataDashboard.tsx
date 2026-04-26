@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { DataRepository } from '../../backend/services/dataRepository';
+import { DB } from '../../backend/services/db';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 interface DataDashboardProps {
@@ -18,7 +19,12 @@ const DataDashboard: React.FC<DataDashboardProps> = ({ onBack }) => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const uid = "mock-user-id";
+        const user = await DB.getAuthSession();
+        if (!user) {
+          setLoading(false);
+          return;
+        }
+        const uid = user.id;
         const st = await DataRepository.getUserStats(uid);
         const hist = await DataRepository.getSessionHistory(uid);
         const ds = await DataRepository.getScoresByDomain(uid);
@@ -40,29 +46,9 @@ const DataDashboard: React.FC<DataDashboardProps> = ({ onBack }) => {
 
   const hasData = history && history.length > 0;
 
-  // Render mock data if real data is missing, to demo standard charting
-  const mockImprovement = useMemo(() => [
-    { date: 1, avgScore: 65 }, { date: 2, avgScore: 72 }, 
-    { date: 3, avgScore: 70 }, { date: 4, avgScore: 81 }, 
-    { date: 5, avgScore: 89 }
-  ], []);
-
-  const mockDomainScores = useMemo(() => [
-    { domain: "Frontend", avgTechnical: 85, avgCommunication: 90 },
-    { domain: "Backend", avgTechnical: 72, avgCommunication: 80 },
-    { domain: "Algorithms", avgTechnical: 65, avgCommunication: 75 }
-  ], []);
-
-  const mockWeaknesses = useMemo(() => [
-    { keyword: "reconciliation", missCount: 5 },
-    { keyword: "useMemo", missCount: 4 },
-    { keyword: "closure", missCount: 3 },
-    { keyword: "debouncing", missCount: 2 }
-  ], []);
-
-  const displayImprovement = hasData && improvement.length > 0 ? improvement : mockImprovement;
-  const displayDomainScores = hasData && domainScores.length > 0 ? domainScores : mockDomainScores;
-  const displayWeaknesses = hasData && weaknesses.length > 0 ? weaknesses : mockWeaknesses;
+  const displayImprovement = improvement;
+  const displayDomainScores = domainScores;
+  const displayWeaknesses = weaknesses;
 
   const filteredHistory = history.filter(h => h.domain.toLowerCase().includes(searchTerm.toLowerCase()));
 

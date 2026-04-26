@@ -17,8 +17,9 @@ export const DataRepository = {
     const domainScores: Record<string, { total: number, count: number }> = {};
 
     completedSessions.forEach(s => {
-      if (s.round1.scores && s.round1.scores.length > 0) {
-        const sessionAvg = s.round1.scores.reduce((acc, score) => acc + score.aggregateScore, 0) / s.round1.scores.length;
+      const scores = s.round1?.scores || s.state?.scores || [];
+      if (scores.length > 0) {
+        const sessionAvg = scores.reduce((acc: any, score: any) => acc + score.aggregateScore, 0) / scores.length;
         if (!domainScores[s.domain]) domainScores[s.domain] = { total: 0, count: 0 };
         domainScores[s.domain].total += sessionAvg;
         domainScores[s.domain].count += 1;
@@ -57,8 +58,9 @@ export const DataRepository = {
     const sessions = await DB.getSessions();
     return sessions.map(s => {
       let score = 0;
-      if (s.round1.scores && s.round1.scores.length > 0) {
-        score = s.round1.scores.reduce((acc, sc) => acc + sc.aggregateScore, 0) / s.round1.scores.length;
+      const scores = s.round1?.scores || s.state?.scores || [];
+      if (scores.length > 0) {
+        score = scores.reduce((acc: any, sc: any) => acc + sc.aggregateScore, 0) / scores.length;
       }
       return {
         sessionId: s.sessionId,
@@ -87,10 +89,11 @@ export const DataRepository = {
     
     sessions.forEach(s => {
       if (!domainData[s.domain]) domainData[s.domain] = { tScore: 0, cScore: 0, aggScore: 0, count: 0 };
-      if (s.round1.scores && s.round1.scores.length > 0) {
-        const tAvg = s.round1.scores.reduce((acc, sc) => acc + sc.technicalScore, 0) / s.round1.scores.length;
-        const cAvg = s.round1.scores.reduce((acc, sc) => acc + sc.communicationScore, 0) / s.round1.scores.length;
-        const aggAvg = s.round1.scores.reduce((acc, sc) => acc + sc.aggregateScore, 0) / s.round1.scores.length;
+      const scores = s.round1?.scores || s.state?.scores || [];
+      if (scores.length > 0) {
+        const tAvg = scores.reduce((acc: any, sc: any) => acc + (sc.technicalScore !== undefined ? sc.technicalScore : (sc.aggregateScore || 0)), 0) / scores.length;
+        const cAvg = scores.reduce((acc: any, sc: any) => acc + (sc.communicationScore !== undefined ? sc.communicationScore : (sc.aggregateScore || 0)), 0) / scores.length;
+        const aggAvg = scores.reduce((acc: any, sc: any) => acc + (sc.aggregateScore || 0), 0) / scores.length;
         
         domainData[s.domain].tScore += tAvg;
         domainData[s.domain].cScore += cAvg;
@@ -112,8 +115,12 @@ export const DataRepository = {
     const sessions = await DB.getSessions();
     const sorted = [...sessions].sort((a, b) => a.startedAt - b.startedAt);
     
-    return sorted.filter(s => s.round1.scores && s.round1.scores.length > 0).map(s => {
-      const avgScore = s.round1.scores.reduce((acc, sc) => acc + sc.aggregateScore, 0) / s.round1.scores.length;
+    return sorted.filter(s => {
+      const scores = s.round1?.scores || s.state?.scores || [];
+      return scores.length > 0;
+    }).map(s => {
+      const scores = s.round1?.scores || s.state?.scores || [];
+      const avgScore = scores.reduce((acc: any, sc: any) => acc + sc.aggregateScore, 0) / scores.length;
       return {
         date: s.startedAt,
         avgScore

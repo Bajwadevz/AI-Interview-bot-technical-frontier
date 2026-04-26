@@ -19,13 +19,21 @@ const FeedbackDashboard: React.FC<FeedbackDashboardProps> = ({ onBack }) => {
       try {
         const allFb = await DB.getAllUserFeedback();
         const allSessions = await DB.getSessions();
-        setFeedback(allFb);
+
+        const legacyFb: FeedbackEntry[] = [];
+        allSessions.forEach(s => {
+          const sFb = s.round1?.feedbackEntries || s.round1?.qualitativeFeedback || (s as any).state?.qualitativeFeedback || [];
+          sFb.forEach((f: any) => {
+             legacyFb.push({ ...f, sessionId: s.sessionId });
+          });
+        });
+
+        const combinedFb = [...allFb, ...legacyFb];
+        setFeedback(combinedFb);
         setSessions(allSessions);
         
-        if (allFb.length > 0) {
-          // preselect newest session with feedback
-          const sessionIdsWithFb = [...new Set(allFb.map((f: any) => f.sessionId || f.questionId))];
-          setSelectedSessionId(sessionIdsWithFb[0]);
+        if (allSessions.length > 0) {
+          setSelectedSessionId(allSessions[0].sessionId);
         }
       } catch (e) {
         console.error(e);
@@ -37,20 +45,7 @@ const FeedbackDashboard: React.FC<FeedbackDashboardProps> = ({ onBack }) => {
 
   const totalQuestions = feedback.length;
   
-  // Create mock data if none exists so dashboard looks good
-  const mockFeedback: FeedbackEntry[] = [
-    {
-      questionId: "mock1",
-      questionText: "Explain the virtual DOM.",
-      strengths: ["Clear explanation", "Good analogy"],
-      weaknesses: ["Missed reconciliation"],
-      missingKeywords: ["Reconciliation", "Diffing"],
-      suggestions: ["Read up on React reconciliation algorithm"],
-      timestamp: Date.now()
-    }
-  ];
-
-  const displayFb = feedback.length > 0 ? feedback : mockFeedback;
+  const displayFb = feedback;
   
   // Calculate summary stats
   const allMissed = displayFb.flatMap(f => f.missingKeywords);
@@ -69,7 +64,7 @@ const FeedbackDashboard: React.FC<FeedbackDashboardProps> = ({ onBack }) => {
   });
 
   const sessionIds = Object.keys(sessionFbMap);
-  const activeSessionFb = selectedSessionId ? (sessionFbMap[selectedSessionId] || displayFb) : displayFb;
+  const activeSessionFb = selectedSessionId ? (sessionFbMap[selectedSessionId] || []) : [];
 
   return (
     <div className="w-full max-w-7xl mx-auto flex flex-col h-full overflow-hidden animate-in fade-in slide-in-from-bottom-4">
@@ -104,13 +99,13 @@ const FeedbackDashboard: React.FC<FeedbackDashboardProps> = ({ onBack }) => {
         ))}
       </div>
 
-      {feedback.length === 0 && !loading && (
+      {activeSessionFb.length === 0 && !loading && selectedSessionId && (
         <div className="mb-8 p-10 bg-slate-50 rounded-[2.5rem] border-4 border-dashed border-slate-200 text-center">
           <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-100">
             <svg className="w-8 h-8 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           </div>
           <h3 className="text-lg font-black text-slate-900 mb-2">No Feedback Yet</h3>
-          <p className="text-slate-500 text-sm mb-6 max-w-md mx-auto">Complete a technical interview round to generate detailed AI feedback on your performance. For now, showing sample data.</p>
+          <p className="text-slate-500 text-sm mb-6 max-w-md mx-auto">This session hasn't generated any actionable feedback entries yet. Complete technical rounds to see deep analysis here.</p>
         </div>
       )}
 
@@ -120,16 +115,18 @@ const FeedbackDashboard: React.FC<FeedbackDashboardProps> = ({ onBack }) => {
         <div className="w-80 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm p-4 flex flex-col overflow-y-auto">
           <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4 px-4 pt-2">Sessions</h3>
           <div className="space-y-2">
-            {sessionIds.map((sId, idx) => (
+            {sessions.map((s, idx) => {
+              const sId = s.sessionId;
+              return (
               <button
                 key={sId}
                 onClick={() => setSelectedSessionId(sId)}
                 className={`w-full text-left p-4 rounded-2xl transition-all ${selectedSessionId === sId ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
               >
-                <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${selectedSessionId === sId ? 'text-indigo-200' : 'text-slate-400'}`}>Session {idx + 1}</p>
-                <p className="text-sm font-bold truncate">Date: {new Date(sessionFbMap[sId][0].timestamp).toLocaleDateString()}</p>
+                <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${selectedSessionId === sId ? 'text-indigo-200' : 'text-slate-400'}`}>Session {sessions.length - idx}</p>
+                <p className="text-sm font-bold truncate">Date: {new Date(s.startedAt).toLocaleDateString()}</p>
               </button>
-            ))}
+            )})}
           </div>
         </div>
 

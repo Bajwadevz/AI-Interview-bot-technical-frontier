@@ -46,8 +46,9 @@ const Module6Dashboard: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-12">
         <div className="lg:col-span-1 space-y-3 max-h-[65vh] overflow-y-auto pr-4 custom-scrollbar">
           {sessions.length > 0 ? sessions.map(s => {
-            const avg = s.state.scores.length > 0 
-              ? Math.round((s.state.scores.reduce((a, b) => a + b.aggregateScore, 0) / s.state.scores.length) * 100) 
+            const scores = s.round1?.scores || s.state?.scores || [];
+            const avg = scores.length > 0
+              ? Math.round((scores.reduce((a: any, b: any) => a + b.aggregateScore, 0) / scores.length) * 100)
               : 0;
             
             return (
@@ -79,13 +80,16 @@ const Module6Dashboard: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           {selectedSession ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-10 animate-in fade-in duration-500">
                <div className="space-y-8 max-h-[75vh] overflow-y-auto pr-6 custom-scrollbar">
-                 {selectedSession.state.scores.length > 0 ? selectedSession.state.scores.map((score, i) => (
-                   <ScoreBreakdown key={i} score={score} label={`Topic ${i+1}`} />
-                 )) : (
-                   <div className="p-20 bg-white rounded-[3rem] border-2 border-dashed border-slate-100 flex items-center justify-center">
-                     <p className="text-slate-300 font-black uppercase text-[10px] tracking-[0.2em]">Telemetry incomplete for this entry</p>
-                   </div>
-                 )}
+                 {(() => {
+                   const scores = selectedSession.round1?.scores || selectedSession.state?.scores || [];
+                   return scores.length > 0 ? scores.map((score: any, i: number) => (
+                     <ScoreBreakdown key={i} score={score} label={`Topic ${i+1}`} />
+                   )) : (
+                     <div className="p-20 bg-white rounded-[3rem] border-2 border-dashed border-slate-100 flex items-center justify-center">
+                       <p className="text-slate-300 font-black uppercase text-[10px] tracking-[0.2em]">Telemetry incomplete for this entry</p>
+                     </div>
+                   );
+                 })()}
                </div>
                <div className="space-y-8 sticky top-32 h-fit">
                  <FormulaDisplay />
